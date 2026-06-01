@@ -1,0 +1,11 @@
+/* Media Library WebP Conversion Styles */
+
+/* Convert link in media modal */
+.wic-convert-single-btn {
+	display: inline-block;
+	margin: 10px 0;
+}
+
+.wic-convert-single-btn:hover {
+	text-decoration: underline !important;
+}
