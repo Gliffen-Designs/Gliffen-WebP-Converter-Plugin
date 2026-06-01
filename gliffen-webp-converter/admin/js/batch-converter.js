@@ -282,4 +282,59 @@
 		});
 	});
 
+	// Watch log in real-time
+	let watchingLog = false;
+	let watchInterval = null;
+	let lastLogMtime = 0;
+
+	$('#watch-log-btn').on('click', function() {
+		watchingLog = !watchingLog;
+
+		if (watchingLog) {
+			$(this).text('Stop Watching').removeClass('button-secondary').addClass('button-primary');
+			$('#watch-status').text('● LIVE').css('color', '#0a0');
+
+			// Get the plugin URL for direct log endpoint
+			const pluginUrl = wicAjax.ajax_url.replace('/wp-admin/admin-ajax.php', '/wp-content/plugins/gliffen-webp-converter');
+
+			// Start polling for log updates (every 5 seconds)
+			watchInterval = setInterval(function() {
+				$.ajax({
+					url: pluginUrl + '/get-log.php',
+					type: 'GET',
+					data: {
+						mtime: lastLogMtime
+					},
+					dataType: 'json',
+					success: function(response) {
+						if (response.changed && response.content) {
+							$('#conversion-log').val(response.content);
+							// Auto-scroll to bottom
+							$('#conversion-log').scrollTop($('#conversion-log')[0].scrollHeight);
+						}
+						lastLogMtime = response.mtime;
+					}
+				});
+			}, 5000); // Poll every 5 seconds
+
+			// Get initial log
+			$.ajax({
+				url: pluginUrl + '/get-log.php',
+				type: 'GET',
+				dataType: 'json',
+				success: function(response) {
+					lastLogMtime = response.mtime;
+					if (response.content) {
+						$('#conversion-log').val(response.content);
+						$('#conversion-log').scrollTop($('#conversion-log')[0].scrollHeight);
+					}
+				}
+			});
+		} else {
+			$(this).text('Start Watching').addClass('button-secondary').removeClass('button-primary');
+			$('#watch-status').text('').css('color', '#999');
+			clearInterval(watchInterval);
+		}
+	});
+
 })(jQuery);

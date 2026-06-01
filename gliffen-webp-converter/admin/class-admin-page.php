@@ -289,7 +289,11 @@ class WIC_Admin_Page {
 				<div class="wic-section">
 					<h3>Conversion Log</h3>
 					<p class="description">View recent conversion activity and errors.</p>
-					<textarea id="conversion-log" readonly style="width: 100%; height: 300px; font-family: monospace; font-size: 12px;">
+					<div style="display: flex; gap: 10px; margin-bottom: 10px;">
+						<button type="button" id="watch-log-btn" class="button button-secondary">Start Watching</button>
+						<span id="watch-status" style="align-self: center; font-weight: bold; color: #999;"></span>
+					</div>
+					<textarea id="conversion-log" readonly style="width: 100%; height: 300px; font-family: monospace; font-size: 12px; border: 1px solid #ddd;">
 <?php echo esc_textarea( WIC_File_Logger::get_log_contents() ); ?>
 					</textarea>
 					<br><br>

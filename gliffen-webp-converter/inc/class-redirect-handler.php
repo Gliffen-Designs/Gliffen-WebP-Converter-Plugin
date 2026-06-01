@@ -211,9 +211,15 @@ HTACCESS;
 				$image_dir = dirname( $original_file );
 				foreach ( $metadata['sizes'] as $size_name => $size_data ) {
 					if ( isset( $size_data['file'] ) ) {
-						$intermediate_file = $image_dir . '/' . $size_data['file'];
+						$size_filename = $size_data['file'];
+						
+						// If the intermediate size file is WebP, infer the original format
+						if ( preg_match( '/\.webp$/i', $size_filename ) ) {
+							$size_filename = preg_replace( '/\.webp$/i', '.jpg', $size_filename );
+						}
+						
+						$intermediate_file = $image_dir . '/' . $size_filename;
 						$files_to_replace[] = $intermediate_file;
-
 					}
 				}
 			}
