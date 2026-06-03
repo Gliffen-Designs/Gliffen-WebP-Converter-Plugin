@@ -202,19 +202,48 @@ class WIC_Converter {
 	}
 
 	/**
-	 * Get all convertible images from media library
+	 * Get the next unconverted image from media library
 	 *
-	 * @return array Array of image attachments
+	 * @return object|null Next unconverted image attachment or null if none found
 	 */
 	public function get_media_library_images() {
 		$args = array(
 			'post_type' => 'attachment',
 			'post_mime_type' => array( 'image/jpeg', 'image/png', 'image/gif' ),
-			'posts_per_page' => -1,
+			'posts_per_page' => 100,
 			'post_status' => 'inherit',
 		);
 
-		return get_posts( $args );
+		$all_images = get_posts( $args );
+
+		foreach ( $all_images as $image ) {
+			$image_path = get_attached_file( $image->ID );
+			
+			// Skip if file path is invalid or doesn't exist
+			if ( ! $image_path || ! file_exists( $image_path ) ) {
+				continue;
+			}
+
+			$path_info = pathinfo( $image_path );
+			$file_ext = strtolower( $path_info['extension'] );
+
+			// Skip if this is already a WebP file
+			if ( $file_ext === 'webp' ) {
+				continue;
+			}
+
+			// Skip if WebP already exists for this image
+			$webp_path = $path_info['dirname'] . '/' . $path_info['filename'] . '.webp';
+			if ( file_exists( $webp_path ) ) {
+				continue;
+			}
+
+			// Return the first unconverted image found
+			return $image;
+		}
+
+		// No unconverted images found
+		return null;
 	}
 
 	/**
@@ -223,12 +252,18 @@ class WIC_Converter {
 	 * @return array Conversion statistics
 	 */
 	public function get_conversion_stats() {
-		$images = $this->get_media_library_images();
-		$upload_dir = wp_upload_dir();
-		$base_path = $upload_dir['basedir'];
+		// Get all images (not just unconverted) for stats purposes
+		$args = array(
+			'post_type' => 'attachment',
+			'post_mime_type' => array( 'image/jpeg', 'image/png', 'image/gif' ),
+			'posts_per_page' => -1,
+			'post_status' => 'inherit',
+		);
+
+		$all_images = get_posts( $args );
 
 		$stats = array(
-			'total_images' => count( $images ),
+			'total_images' => count( $all_images ),
 			'converted_count' => 0,
 			'unconverted_count' => 0,
 			'total_original_size' => 0,
@@ -236,27 +271,39 @@ class WIC_Converter {
 			'potential_savings' => 0,
 		);
 
-		foreach ( $images as $image ) {
-			$image_path = get_attached_file( $image->ID );
-			if ( ! $image_path ) {
+		foreach ( $all_images as $image ) {
+			$attached_file = get_attached_file( $image->ID );
+			if ( ! $attached_file || ! file_exists( $attached_file ) ) {
 				continue;
 			}
 
-			$original_size = filesize( $image_path );
-			$stats['total_original_size'] += $original_size;
+			$path_info = pathinfo( $attached_file );
+			$file_ext = strtolower( $path_info['extension'] );
 
-			// Check if WebP exists
-			$path_info = pathinfo( $image_path );
-			$webp_path = $path_info['dirname'] . '/' . $path_info['filename'] . '.webp';
-
-			if ( file_exists( $webp_path ) ) {
-				$webp_size = filesize( $webp_path );
+			// Check if this is already a WebP file
+			if ( $file_ext === 'webp' ) {
+				// This is a converted image
 				$stats['converted_count']++;
+				$webp_size = filesize( $attached_file );
 				$stats['total_webp_size'] += $webp_size;
 			} else {
-				$stats['unconverted_count']++;
-				// Estimate savings (typically 25-35% for WebP)
-				$stats['potential_savings'] += (int) ( $original_size * 0.30 );
+				// This is an original format image
+				$original_size = filesize( $attached_file );
+				$stats['total_original_size'] += $original_size;
+
+				// Check if WebP version exists
+				$webp_path = $path_info['dirname'] . '/' . $path_info['filename'] . '.webp';
+				if ( file_exists( $webp_path ) ) {
+					// WebP exists, so it's been converted
+					$stats['converted_count']++;
+					$webp_size = filesize( $webp_path );
+					$stats['total_webp_size'] += $webp_size;
+				} else {
+					// No WebP, so it's unconverted
+					$stats['unconverted_count']++;
+					// Estimate savings (typically 25-35% for WebP)
+					$stats['potential_savings'] += (int) ( $original_size * 0.30 );
+				}
 			}
 		}
 

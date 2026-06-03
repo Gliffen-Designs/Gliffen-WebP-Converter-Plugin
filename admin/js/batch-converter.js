@@ -2,7 +2,6 @@
 	'use strict';
 
 	let isConverting = false;
-	let currentBatch = 0;
 	let totalConvertedSoFar = 0;
 
 	// Start conversion
@@ -10,7 +9,6 @@
 		if (isConverting) return;
 
 		isConverting = true;
-		currentBatch = 0;
 		totalConvertedSoFar = 0;
 
 		$('#start-conversion-btn').hide();
@@ -42,7 +40,6 @@
 			data: {
 				action: 'wic_batch_convert',
 				nonce: wicAjax.nonce,
-				batch: currentBatch,
 				total_converted_so_far: totalConvertedSoFar,
 				max_images: maxImages
 			},
@@ -59,7 +56,7 @@
 
 					// Update status text
 					$('#progress-text').text(
-						'Batch ' + (data.batch) + ' complete. Converted: ' + data.total_converted + 
+						'Converted: ' + data.total_converted + 
 						' | Remaining: ' + data.total_remaining + ' | Progress: ' + progressPercent + '%'
 					);
 
@@ -81,8 +78,7 @@
 						isConverting = false;
 						refreshStats();
 					} else {
-						// Continue with next batch
-						currentBatch++;
+						// Continue with next image
 						setTimeout(startBatchConversion, 500);
 					}
 				} else {
@@ -99,15 +95,12 @@
 
 	// Save settings
 	$('#save-settings-btn').on('click', function() {
-		const batchSize = parseInt($('#batch-size').val()) || 200;
-		
 		const data = {
 			action: 'wic_save_settings',
 			nonce: wicAjax.nonce,
 			auto_convert_enabled: $('#auto-convert').is(':checked') ? 1 : 0,
 			auto_backup_enabled: $('#auto-backup').is(':checked') ? 1 : 0,
-			webp_quality: $('#webp-quality').val(),
-			batch_size: batchSize
+			webp_quality: $('#webp-quality').val()
 		};
 
 		$.ajax({
@@ -308,13 +301,13 @@
 			$(this).text('Stop Watching').removeClass('button-secondary').addClass('button-primary');
 			$('#watch-status').text('● LIVE').css('color', '#0a0');
 
-			// Get the plugin URL for direct log endpoint
-			const pluginUrl = wicAjax.ajax_url.replace('/wp-admin/admin-ajax.php', '/wp-content/plugins/gliffen-webp-converter');
+			// Get the plugin URL from localized data
+			const logUrl = wicAjax.plugin_url + 'get-log.php';
 
 			// Start polling for log updates (every 5 seconds)
 			watchInterval = setInterval(function() {
 				$.ajax({
-					url: pluginUrl + '/get-log.php',
+					url: logUrl,
 					type: 'GET',
 					data: {
 						mtime: lastLogMtime
@@ -333,7 +326,7 @@
 
 			// Get initial log
 			$.ajax({
-				url: pluginUrl + '/get-log.php',
+				url: logUrl,
 				type: 'GET',
 				dataType: 'json',
 				success: function(response) {

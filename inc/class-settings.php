@@ -30,7 +30,6 @@ class WIC_Settings {
 			'auto_backup_enabled' => false,
 			'htaccess_configured' => false,
 			'update_db_refs' => true,
-			'batch_size' => 200,
 		);
 
 		foreach ( $defaults as $option => $default_value ) {
@@ -49,7 +48,6 @@ class WIC_Settings {
 		register_setting( 'wic_settings', self::PREFIX . 'auto_backup_enabled' );
 		register_setting( 'wic_settings', self::PREFIX . 'htaccess_configured' );
 		register_setting( 'wic_settings', self::PREFIX . 'update_db_refs' );
-		register_setting( 'wic_settings', self::PREFIX . 'batch_size' );
 	}
 
 	/**
@@ -99,7 +97,6 @@ class WIC_Settings {
 			'auto_backup_enabled' => self::get_option( 'auto_backup_enabled', false ),
 			'htaccess_configured' => self::get_option( 'htaccess_configured', false ),
 			'update_db_refs' => self::get_option( 'update_db_refs', true ),
-			'batch_size' => self::get_option( 'batch_size', 200 ),
 		);
 	}
 

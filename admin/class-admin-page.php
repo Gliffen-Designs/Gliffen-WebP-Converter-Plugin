@@ -64,6 +64,7 @@ class WIC_Admin_Page {
 				array(
 					'ajax_url' => admin_url( 'admin-ajax.php' ),
 					'nonce' => wp_create_nonce( 'wic_nonce' ),
+					'plugin_url' => WIC_PLUGIN_URL,
 				)
 			);
 
@@ -159,7 +160,7 @@ class WIC_Admin_Page {
 			<!-- Batch Conversion Tab -->
 			<div id="tab-conversion" class="wic-tab-content active">
 				<h2>Batch Image Conversion</h2>
-				<p>Convert all images in your media library to WebP format in batches of <?php echo esc_html( $settings['batch_size'] ); ?>.</p>
+				<p>Convert all images in your media library to WebP format one at a time until the maximum process limit is reached.</p>
 
 				<div class="wic-progress-box" style="display: none;">
 					<div class="wic-progress-bar">
@@ -184,7 +185,7 @@ class WIC_Admin_Page {
 				</div>
 
 				<p class="wic-info">
-					<strong>Note:</strong> Conversion will process <?php echo esc_html( $settings['batch_size'] ); ?> images at a time. Original files will be deleted after successful conversion.
+					<strong>Note:</strong> Images will be processed one at a time. Original files will be deleted after successful conversion. Adjust "Max Images to Process" to control how many images are converted in each session.
 				</p>
 			</div>
 
@@ -222,15 +223,6 @@ class WIC_Admin_Page {
 								<input type="range" id="webp-quality" name="webp_quality" min="1" max="100" value="<?php echo esc_attr( $settings['webp_quality'] ); ?>" step="1" />
 								<span id="quality-display"><?php echo esc_html( $settings['webp_quality'] ); ?></span>%
 								<p class="description">Lower values = smaller file size but lower quality. Default: 80 (recommended).</p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								<label for="batch-size">Batch Size</label>
-							</th>
-							<td>
-								<input type="number" id="batch-size" name="batch_size" min="1" max="500" value="<?php echo esc_attr( $settings['batch_size'] ); ?>" step="1" />
-								<p class="description">Number of images to process in each batch during conversion. Lower values reduce memory usage (1-500). Default: 200.</p>
 							</td>
 						</tr>
 					</table>
@@ -329,67 +321,77 @@ class WIC_Admin_Page {
 			wp_send_json_error( 'Unauthorized' );
 		}
 
-		$batch_num = isset( $_POST['batch'] ) ? intval( $_POST['batch'] ) : 0;
 		$total_converted_so_far = isset( $_POST['total_converted_so_far'] ) ? intval( $_POST['total_converted_so_far'] ) : 0;
 		$max_images = isset( $_POST['max_images'] ) ? intval( $_POST['max_images'] ) : 500;
-		$batch_size = WIC_Settings::get_option( 'batch_size', 200 );
 
-		$converter = new WIC_Converter();
-		$images = $converter->get_media_library_images();
-
-		// Calculate offset
-		$offset = $batch_num * $batch_size;
-		$batch_images = array_slice( $images, $offset, $batch_size );
-
-		if ( empty( $batch_images ) ) {
+		// Check if we've already hit the max limit
+		if ( $total_converted_so_far >= $max_images ) {
 			wp_send_json_success( array(
+				'converted' => 0,
+				'failed' => 0,
+				'total_converted' => $total_converted_so_far,
+				'total_remaining' => 0,
+				'total_converted_so_far' => $total_converted_so_far,
+				'max_images' => $max_images,
+				'progress' => 100,
 				'done' => true,
-				'message' => 'Conversion complete!',
+				'message' => "Reached maximum image limit ({$max_images} images processed). Click 'Start Batch Conversion' again to process more.",
 			) );
 		}
 
-		$converted = 0;
-		$failed = 0;
+		$converter = new WIC_Converter();
+		$image = $converter->get_media_library_images();
+
+		// No more unconverted images
+		if ( ! $image ) {
+			wp_send_json_success( array(
+				'converted' => 0,
+				'failed' => 0,
+				'total_converted' => $total_converted_so_far,
+				'total_remaining' => 0,
+				'total_converted_so_far' => $total_converted_so_far,
+				'max_images' => $max_images,
+				'progress' => 100,
+				'done' => true,
+				'message' => '',
+			) );
+		}
+
 		$quality = WIC_Settings::get_option( 'webp_quality', 80 );
 		$backup = WIC_Settings::get_option( 'auto_backup_enabled', false );
 
-		foreach ( $batch_images as $image ) {
-			// Check if we've hit the max images limit
-			if ( $total_converted_so_far + $converted >= $max_images ) {
-				break;
-			}
+		// Convert this image (returns count of individual sizes converted)
+		$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup );
 
-			// Convert attachment and all its intermediate sizes
-			$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup );
+		$converted = 0;
+		$failed = 0;
+		if ( is_array( $result ) && $result['converted_count'] > 0 ) {
+			$converted = 1; // Count as 1 attachment converted, not the number of sizes
+			$failed = 0;
 
-			if ( is_array( $result ) && $result['converted_count'] > 0 ) {
-				$converted += $result['converted_count'];
-				$failed += $result['failed_count'];
-
-				// Immediately update database references for this image
-				WIC_Redirect_Handler::update_database_references_for_attachment( $image->ID );
-			} else {
-				$failed++;
-			}
+			// Immediately update database references for this image
+			WIC_Redirect_Handler::update_database_references_for_attachment( $image->ID );
+		} else {
+			$failed = 1;
 		}
 
-		// Get updated stats
-		$stats = $converter->get_conversion_stats();
-		$progress_percentage = ( $stats['converted_count'] / max( $stats['total_images'], 1 ) ) * 100;
 		$new_total_converted = $total_converted_so_far + $converted;
 		$hit_max_limit = $new_total_converted >= $max_images;
 
+		// Check if there's another image waiting
+		$next_image = $converter->get_media_library_images();
+		$has_more = $next_image !== null && ! $hit_max_limit;
+
 		wp_send_json_success( array(
-			'batch' => $batch_num + 1,
 			'converted' => $converted,
 			'failed' => $failed,
-			'total_converted' => $stats['converted_count'],
-			'total_remaining' => $stats['unconverted_count'],
+			'total_converted' => $new_total_converted,
+			'total_remaining' => $has_more ? 1 : 0, // If there's a next image, there's at least 1 remaining
 			'total_converted_so_far' => $new_total_converted,
 			'max_images' => $max_images,
-			'progress' => $progress_percentage,
-			'done' => $stats['unconverted_count'] === 0 || $hit_max_limit,
-			'message' => $hit_max_limit ? "Reached maximum image limit ({$max_images} images processed). Click 'Start Batch Conversion' again to process more." : '',
+			'progress' => ( $new_total_converted / $max_images ) * 100,
+			'done' => $hit_max_limit || ! $has_more,
+			'message' => $hit_max_limit && $has_more ? "Reached maximum image limit ({$max_images} images processed). Click 'Start Batch Conversion' again to process more." : '',
 		) );
 	}
 
@@ -426,12 +428,10 @@ class WIC_Admin_Page {
 		$auto_convert = (bool) intval( $_POST['auto_convert_enabled'] ?? 0 );
 		$auto_backup = (bool) intval( $_POST['auto_backup_enabled'] ?? 0 );
 		$quality = isset( $_POST['webp_quality'] ) ? intval( $_POST['webp_quality'] ) : 80;
-		$batch_size = isset( $_POST['batch_size'] ) ? intval( $_POST['batch_size'] ) : 200;
 
 		WIC_Settings::update_option( 'auto_convert_enabled', $auto_convert );
 		WIC_Settings::update_option( 'auto_backup_enabled', $auto_backup );
 		WIC_Settings::update_option( 'webp_quality', max( 1, min( 100, $quality ) ) );
-		WIC_Settings::update_option( 'batch_size', max( 1, min( 500, $batch_size ) ) ); // Min 1, max 500
 
 		wp_send_json_success( array( 'message' => 'Settings saved successfully!' ) );
 	}
