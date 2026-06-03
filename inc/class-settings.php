@@ -27,7 +27,7 @@ class WIC_Settings {
 		$defaults = array(
 			'auto_convert_enabled' => true,
 			'webp_quality' => 80,
-			'auto_backup_enabled' => false,
+			'auto_backup_enabled' => true,
 			'htaccess_configured' => false,
 			'update_db_refs' => true,
 		);
