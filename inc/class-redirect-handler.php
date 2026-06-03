@@ -232,47 +232,19 @@ HTACCESS;
 				$file_options = 0;
 				$file_links = 0;
 
-				// Build search URLs - search for relative paths from WordPress root
-				$relative_from_root = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
-				$old_url_with_slash = '/' . $relative_from_root;
-				$old_url_without_slash = $relative_from_root;
-				
-				$new_url_with_slash = '/' . str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_from_root );
-				$new_url_without_slash = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_from_root );
+				// Build search and replace URLs using relative path from WordPress root
+				// This pattern will match in any context: /path, path, https://domain/path, etc.
+				$relative_path = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
+				$old_url = $relative_path;
+				$new_url = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_path );
 
-				// Also build full domain URLs (for Gutenberg blocks with absolute URLs)
-				$old_url_full = $upload_url . '/' . $file_to_replace;
-				$new_url_full = $upload_url . '/' . preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace );
-
-				// Update posts table - search for relative paths (with and without leading slash) and full domain URLs
+				// Update posts table
 				$count = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url_with_slash,
-						$new_url_with_slash,
-						'%' . $old_url_with_slash . '%'
-					)
-				);
-				$file_posts += $count;
-				$stats['posts_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url_without_slash,
-						$new_url_without_slash,
-						'%' . $old_url_without_slash . '%'
-					)
-				);
-				$file_posts += $count;
-				$stats['posts_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url_full,
-						$new_url_full,
-						'%' . $old_url_full . '%'
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
 					)
 				);
 				$file_posts += $count;
@@ -282,31 +254,9 @@ HTACCESS;
 				$count = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url_with_slash,
-						$new_url_with_slash,
-						'%' . $old_url_with_slash . '%'
-					)
-				);
-				$file_postmeta += $count;
-				$stats['postmeta_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url_without_slash,
-						$new_url_without_slash,
-						'%' . $old_url_without_slash . '%'
-					)
-				);
-				$file_postmeta += $count;
-				$stats['postmeta_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url_full,
-						$new_url_full,
-						'%' . $old_url_full . '%'
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
 					)
 				);
 				$file_postmeta += $count;
@@ -316,31 +266,9 @@ HTACCESS;
 				$count = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url_with_slash,
-						$new_url_with_slash,
-						'%' . $old_url_with_slash . '%'
-					)
-				);
-				$file_options += $count;
-				$stats['options_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url_without_slash,
-						$new_url_without_slash,
-						'%' . $old_url_without_slash . '%'
-					)
-				);
-				$file_options += $count;
-				$stats['options_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url_full,
-						$new_url_full,
-						'%' . $old_url_full . '%'
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
 					)
 				);
 				$file_options += $count;
@@ -351,31 +279,9 @@ HTACCESS;
 					$count = $wpdb->query(
 						$wpdb->prepare(
 							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url_with_slash,
-							$new_url_with_slash,
-							'%' . $old_url_with_slash . '%'
-						)
-					);
-					$file_links += $count;
-					$stats['links_updated'] += $count;
-
-					$count = $wpdb->query(
-						$wpdb->prepare(
-							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url_without_slash,
-							$new_url_without_slash,
-							'%' . $old_url_without_slash . '%'
-						)
-					);
-					$file_links += $count;
-					$stats['links_updated'] += $count;
-
-					$count = $wpdb->query(
-						$wpdb->prepare(
-							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url_full,
-							$new_url_full,
-							'%' . $old_url_full . '%'
+							$old_url,
+							$new_url,
+							'%' . $old_url . '%'
 						)
 					);
 					$file_links += $count;
@@ -464,47 +370,19 @@ HTACCESS;
 				$file_options = 0;
 				$file_links = 0;
 
-				// Build search URLs - search for relative paths from WordPress root
-				$relative_from_root = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
-				$old_url_with_slash = '/' . $relative_from_root;
-				$old_url_without_slash = $relative_from_root;
-				
-				$new_url_with_slash = '/' . str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_from_root );
-				$new_url_without_slash = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_from_root );
+				// Build search and replace URLs using relative path from WordPress root
+				// This pattern will match in any context: /path, path, https://domain/path, etc.
+				$relative_path = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
+				$old_url = $relative_path;
+				$new_url = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_path );
 
-				// Also build full domain URLs
-				$old_url_full = $upload_url . '/' . $file_to_replace;
-				$new_url_full = $upload_url . '/' . preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace );
-
-				// Update posts table - search for relative paths (with and without leading slash) and full domain URLs
+				// Update posts table
 				$count = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url_with_slash,
-						$new_url_with_slash,
-						'%' . $old_url_with_slash . '%'
-					)
-				);
-				$file_posts += $count;
-				$stats['posts_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url_without_slash,
-						$new_url_without_slash,
-						'%' . $old_url_without_slash . '%'
-					)
-				);
-				$file_posts += $count;
-				$stats['posts_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url_full,
-						$new_url_full,
-						'%' . $old_url_full . '%'
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
 					)
 				);
 				$file_posts += $count;
@@ -514,31 +392,9 @@ HTACCESS;
 				$count = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url_with_slash,
-						$new_url_with_slash,
-						'%' . $old_url_with_slash . '%'
-					)
-				);
-				$file_postmeta += $count;
-				$stats['postmeta_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url_without_slash,
-						$new_url_without_slash,
-						'%' . $old_url_without_slash . '%'
-					)
-				);
-				$file_postmeta += $count;
-				$stats['postmeta_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url_full,
-						$new_url_full,
-						'%' . $old_url_full . '%'
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
 					)
 				);
 				$file_postmeta += $count;
@@ -548,31 +404,9 @@ HTACCESS;
 				$count = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url_with_slash,
-						$new_url_with_slash,
-						'%' . $old_url_with_slash . '%'
-					)
-				);
-				$file_options += $count;
-				$stats['options_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url_without_slash,
-						$new_url_without_slash,
-						'%' . $old_url_without_slash . '%'
-					)
-				);
-				$file_options += $count;
-				$stats['options_updated'] += $count;
-
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url_full,
-						$new_url_full,
-						'%' . $old_url_full . '%'
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
 					)
 				);
 				$file_options += $count;
@@ -583,31 +417,9 @@ HTACCESS;
 					$count = $wpdb->query(
 						$wpdb->prepare(
 							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url_with_slash,
-							$new_url_with_slash,
-							'%' . $old_url_with_slash . '%'
-						)
-					);
-					$file_links += $count;
-					$stats['links_updated'] += $count;
-
-					$count = $wpdb->query(
-						$wpdb->prepare(
-							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url_without_slash,
-							$new_url_without_slash,
-							'%' . $old_url_without_slash . '%'
-						)
-					);
-					$file_links += $count;
-					$stats['links_updated'] += $count;
-
-					$count = $wpdb->query(
-						$wpdb->prepare(
-							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url_full,
-							$new_url_full,
-							'%' . $old_url_full . '%'
+							$old_url,
+							$new_url,
+							'%' . $old_url . '%'
 						)
 					);
 					$file_links += $count;
@@ -621,6 +433,163 @@ HTACCESS;
 
 		// Log summary of all updates
 		WIC_File_Logger::log_database_update( '', $stats['posts_updated'], $stats['postmeta_updated'], $stats['options_updated'], $stats['links_updated'], 'complete' );
+
+		return $stats;
+	}
+
+	/**
+	 * Update database references for a single attachment
+	 * Called immediately after converting an image to keep DB in sync
+	 *
+	 * @param int $attachment_id Attachment ID to update references for
+	 *
+	 * @return array Update stats for this attachment
+	 */
+	public static function update_database_references_for_attachment( $attachment_id ) {
+		global $wpdb;
+
+		$stats = array(
+			'posts_updated' => 0,
+			'postmeta_updated' => 0,
+			'options_updated' => 0,
+			'links_updated' => 0,
+		);
+
+		// Check if this attachment was actually converted
+		$is_converted = get_post_meta( $attachment_id, '_webp_converted', true );
+		if ( ! $is_converted ) {
+			return $stats; // Not converted, nothing to update
+		}
+
+		// Get upload directory
+		$upload_dir = wp_upload_dir();
+		$upload_url = $upload_dir['baseurl'];
+		$upload_path = $upload_dir['basedir'];
+
+		// Get the original file
+		$original_file = get_post_meta( $attachment_id, '_webp_original_file', true );
+
+		// If no original file, try to recover it (legacy images)
+		if ( ! $original_file ) {
+			$metadata = wp_get_attachment_metadata( $attachment_id );
+			if ( ! is_array( $metadata ) || ! isset( $metadata['file'] ) ) {
+				return $stats; // Can't determine original file
+			}
+
+			$current_file = $metadata['file'];
+
+			// If metadata['file'] is .webp, infer original
+			if ( preg_match( '/\.webp$/i', $current_file ) ) {
+				$original_file = preg_replace( '/\.webp$/i', '.jpg', $current_file );
+				// Verify WebP exists
+				$webp_full_path = $upload_path . '/' . $current_file;
+				if ( ! file_exists( $webp_full_path ) ) {
+					return $stats; // WebP doesn't exist
+				}
+				// Store it for next time
+				update_post_meta( $attachment_id, '_webp_original_file', $original_file );
+			} else {
+				// If current file is still in original format, use it
+				if ( preg_match( '/\.(jpg|jpeg|png|gif)$/i', $current_file ) ) {
+					$original_file = $current_file;
+				} else {
+					return $stats; // Unknown format
+				}
+			}
+		}
+
+		// Handle full path if needed
+		if ( strpos( $original_file, $upload_path ) === 0 ) {
+			$original_file = str_replace( $upload_path . '/', '', $original_file );
+		}
+
+		// Collect files: main + intermediate sizes
+		$files_to_replace = array( $original_file );
+
+		$metadata = wp_get_attachment_metadata( $attachment_id );
+		if ( is_array( $metadata ) && isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
+			$image_dir = dirname( $original_file );
+			foreach ( $metadata['sizes'] as $size_name => $size_data ) {
+				if ( isset( $size_data['file'] ) ) {
+					$size_filename = $size_data['file'];
+
+					// If intermediate is WebP, infer original format
+					if ( preg_match( '/\.webp$/i', $size_filename ) ) {
+						$size_filename = preg_replace( '/\.webp$/i', '.jpg', $size_filename );
+					}
+
+					$intermediate_file = $image_dir . '/' . $size_filename;
+					$files_to_replace[] = $intermediate_file;
+				}
+			}
+		}
+
+		// Process each file
+		foreach ( $files_to_replace as $file_to_replace ) {
+			$file_posts = 0;
+			$file_postmeta = 0;
+			$file_options = 0;
+			$file_links = 0;
+
+			// Build search and replace URLs using relative path from WordPress root
+			// This pattern will match in any context: /path, path, https://domain/path, etc.
+			$relative_path = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
+			$old_url = $relative_path;
+			$new_url = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_path );
+
+			// Update posts table
+			$count = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
+					$old_url,
+					$new_url,
+					'%' . $old_url . '%'
+				)
+			);
+			$file_posts += $count;
+			$stats['posts_updated'] += $count;
+
+			// Update postmeta table
+			$count = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
+					$old_url,
+					$new_url,
+					'%' . $old_url . '%'
+				)
+			);
+			$file_postmeta += $count;
+			$stats['postmeta_updated'] += $count;
+
+			// Update options table
+			$count = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
+					$old_url,
+					$new_url,
+					'%' . $old_url . '%'
+				)
+			);
+			$file_options += $count;
+			$stats['options_updated'] += $count;
+
+			// Update links table
+			if ( $wpdb->get_var( "SHOW TABLES LIKE '$wpdb->links'" ) ) {
+				$count = $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
+						$old_url,
+						$new_url,
+						'%' . $old_url . '%'
+					)
+				);
+				$file_links += $count;
+				$stats['links_updated'] += $count;
+			}
+
+			// Log this file update
+			WIC_File_Logger::log_database_update( $file_to_replace, $file_posts, $file_postmeta, $file_options, $file_links, 'primary' );
+		}
 
 		return $stats;
 	}

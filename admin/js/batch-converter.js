@@ -3,6 +3,7 @@
 
 	let isConverting = false;
 	let currentBatch = 0;
+	let totalConvertedSoFar = 0;
 
 	// Start conversion
 	$('#start-conversion-btn').on('click', function() {
@@ -10,6 +11,7 @@
 
 		isConverting = true;
 		currentBatch = 0;
+		totalConvertedSoFar = 0;
 
 		$('#start-conversion-btn').hide();
 		$('#stop-conversion-btn').show();
@@ -32,13 +34,17 @@
 			return;
 		}
 
+		const maxImages = parseInt($('#max-images').val()) || 500;
+
 		$.ajax({
 			url: wicAjax.ajax_url,
 			type: 'POST',
 			data: {
 				action: 'wic_batch_convert',
 				nonce: wicAjax.nonce,
-				batch: currentBatch
+				batch: currentBatch,
+				total_converted_so_far: totalConvertedSoFar,
+				max_images: maxImages
 			},
 			success: function(response) {
 				if (response.success) {
@@ -47,6 +53,9 @@
 					// Update progress bar
 					const progressPercent = Math.round(data.progress);
 					$('#progress-fill').css('width', progressPercent + '%');
+
+					// Update total converted so far
+					totalConvertedSoFar = data.total_converted_so_far;
 
 					// Update status text
 					$('#progress-text').text(
@@ -59,8 +68,14 @@
 					$('#remaining-count').text(data.total_remaining);
 
 					if (data.done) {
-						// Conversion complete
-						$('#progress-text').text('✓ All images converted successfully!');
+						// Conversion complete or max limit reached
+						if (data.message && data.message.length > 0) {
+							// Max limit reached
+							$('#progress-text').text(data.message);
+						} else {
+							// All images converted
+							$('#progress-text').text('✓ All images converted successfully!');
+						}
 						$('#stop-conversion-btn').hide();
 						$('#start-conversion-btn').show();
 						isConverting = false;
@@ -92,7 +107,6 @@
 			auto_convert_enabled: $('#auto-convert').is(':checked') ? 1 : 0,
 			auto_backup_enabled: $('#auto-backup').is(':checked') ? 1 : 0,
 			webp_quality: $('#webp-quality').val(),
-			update_db_refs: $('#update-db').is(':checked') ? 1 : 0,
 			batch_size: batchSize
 		};
 

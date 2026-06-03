@@ -169,12 +169,18 @@ class WIC_Admin_Page {
 				</div>
 
 				<div class="wic-actions">
-					<button id="start-conversion-btn" class="button button-primary">
-						Start Batch Conversion
-					</button>
-					<button id="stop-conversion-btn" class="button" style="display: none;">
-						Stop Conversion
-					</button>
+					<div style="display: flex; gap: 15px; align-items: center;">
+						<button id="start-conversion-btn" class="button button-primary">
+							Start Batch Conversion
+						</button>
+						<button id="stop-conversion-btn" class="button" style="display: none;">
+							Stop Conversion
+						</button>
+						<div>
+							<label for="max-images" style="display: block; margin-bottom: 5px;"><strong>Max Images to Process:</strong></label>
+							<input type="number" id="max-images" min="1" max="10000" value="500" style="width: 120px; padding: 5px;" />
+						</div>
+					</div>
 				</div>
 
 				<p class="wic-info">
@@ -216,15 +222,6 @@ class WIC_Admin_Page {
 								<input type="range" id="webp-quality" name="webp_quality" min="1" max="100" value="<?php echo esc_attr( $settings['webp_quality'] ); ?>" step="1" />
 								<span id="quality-display"><?php echo esc_html( $settings['webp_quality'] ); ?></span>%
 								<p class="description">Lower values = smaller file size but lower quality. Default: 80 (recommended).</p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								<label for="update-db">Update Database References</label>
-							</th>
-							<td>
-								<input type="checkbox" id="update-db" name="update_db_refs" value="1" <?php checked( $settings['update_db_refs'] ); ?> />
-								<p class="description">Update all image URLs in posts, pages, and settings from .jpg/.png/.gif to .webp.</p>
 							</td>
 						</tr>
 						<tr>
@@ -333,6 +330,8 @@ class WIC_Admin_Page {
 		}
 
 		$batch_num = isset( $_POST['batch'] ) ? intval( $_POST['batch'] ) : 0;
+		$total_converted_so_far = isset( $_POST['total_converted_so_far'] ) ? intval( $_POST['total_converted_so_far'] ) : 0;
+		$max_images = isset( $_POST['max_images'] ) ? intval( $_POST['max_images'] ) : 500;
 		$batch_size = WIC_Settings::get_option( 'batch_size', 200 );
 
 		$converter = new WIC_Converter();
@@ -355,12 +354,20 @@ class WIC_Admin_Page {
 		$backup = WIC_Settings::get_option( 'auto_backup_enabled', false );
 
 		foreach ( $batch_images as $image ) {
+			// Check if we've hit the max images limit
+			if ( $total_converted_so_far + $converted >= $max_images ) {
+				break;
+			}
+
 			// Convert attachment and all its intermediate sizes
 			$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup );
 
 			if ( is_array( $result ) && $result['converted_count'] > 0 ) {
 				$converted += $result['converted_count'];
 				$failed += $result['failed_count'];
+
+				// Immediately update database references for this image
+				WIC_Redirect_Handler::update_database_references_for_attachment( $image->ID );
 			} else {
 				$failed++;
 			}
@@ -369,11 +376,8 @@ class WIC_Admin_Page {
 		// Get updated stats
 		$stats = $converter->get_conversion_stats();
 		$progress_percentage = ( $stats['converted_count'] / max( $stats['total_images'], 1 ) ) * 100;
-
-		// If this is the last batch and update_db_refs is enabled, update database references
-		if ( $stats['unconverted_count'] === 0 && WIC_Settings::get_option( 'update_db_refs', true ) ) {
-			WIC_Redirect_Handler::update_database_references();
-		}
+		$new_total_converted = $total_converted_so_far + $converted;
+		$hit_max_limit = $new_total_converted >= $max_images;
 
 		wp_send_json_success( array(
 			'batch' => $batch_num + 1,
@@ -381,8 +385,11 @@ class WIC_Admin_Page {
 			'failed' => $failed,
 			'total_converted' => $stats['converted_count'],
 			'total_remaining' => $stats['unconverted_count'],
+			'total_converted_so_far' => $new_total_converted,
+			'max_images' => $max_images,
 			'progress' => $progress_percentage,
-			'done' => $stats['unconverted_count'] === 0,
+			'done' => $stats['unconverted_count'] === 0 || $hit_max_limit,
+			'message' => $hit_max_limit ? "Reached maximum image limit ({$max_images} images processed). Click 'Start Batch Conversion' again to process more." : '',
 		) );
 	}
 
@@ -419,13 +426,11 @@ class WIC_Admin_Page {
 		$auto_convert = (bool) intval( $_POST['auto_convert_enabled'] ?? 0 );
 		$auto_backup = (bool) intval( $_POST['auto_backup_enabled'] ?? 0 );
 		$quality = isset( $_POST['webp_quality'] ) ? intval( $_POST['webp_quality'] ) : 80;
-		$update_db = (bool) intval( $_POST['update_db_refs'] ?? 0 );
 		$batch_size = isset( $_POST['batch_size'] ) ? intval( $_POST['batch_size'] ) : 200;
 
 		WIC_Settings::update_option( 'auto_convert_enabled', $auto_convert );
 		WIC_Settings::update_option( 'auto_backup_enabled', $auto_backup );
 		WIC_Settings::update_option( 'webp_quality', max( 1, min( 100, $quality ) ) );
-		WIC_Settings::update_option( 'update_db_refs', $update_db );
 		WIC_Settings::update_option( 'batch_size', max( 1, min( 500, $batch_size ) ) ); // Min 1, max 500
 
 		wp_send_json_success( array( 'message' => 'Settings saved successfully!' ) );
@@ -578,14 +583,12 @@ class WIC_Admin_Page {
 			if ( is_array( $result ) && $result['converted_count'] > 0 ) {
 				$converted += $result['converted_count'];
 				$failed += $result['failed_count'];
+
+				// Immediately update database references for this image
+				WIC_Redirect_Handler::update_database_references_for_attachment( $attachment_id );
 			} else {
 				$failed++;
 			}
-		}
-
-		// Update database references if enabled
-		if ( $converted > 0 && WIC_Settings::get_option( 'update_db_refs', true ) ) {
-			WIC_Redirect_Handler::update_database_references();
 		}
 
 		// Add result message to redirect URL
