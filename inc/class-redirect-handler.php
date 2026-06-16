@@ -129,6 +129,64 @@ HTACCESS;
 	}
 
 	/**
+	 * Helper: Safely replace strings in any value type, handling serialization
+	 *
+	 * @param mixed  $value Value to search/replace in (string, array, object, or serialized data)
+	 * @param string $old_url Old URL to search for
+	 * @param string $new_url New URL to replace with
+	 *
+	 * @return array|mixed The modified value, or original if no changes
+	 */
+	private static function safely_replace_in_value( $value, $old_url, $new_url ) {
+		if ( is_string( $value ) ) {
+			// Check if it's serialized data
+			$unserialized = @unserialize( $value );
+			if ( false !== $unserialized ) {
+				// Recursively process unserialized data
+				$processed = self::safely_replace_in_value( $unserialized, $old_url, $new_url );
+				if ( $processed !== $unserialized ) {
+					// Re-serialize only if something changed
+					return serialize( $processed );
+				}
+			} else {
+				// Regular string - do simple replace
+				$replaced = str_replace( $old_url, $new_url, $value );
+				if ( $replaced !== $value ) {
+					return $replaced;
+				}
+			}
+		} elseif ( is_array( $value ) ) {
+			// Recursively process array values
+			$modified = false;
+			foreach ( $value as $key => $item ) {
+				$new_item = self::safely_replace_in_value( $item, $old_url, $new_url );
+				if ( $new_item !== $item ) {
+					$value[ $key ] = $new_item;
+					$modified = true;
+				}
+			}
+			if ( $modified ) {
+				return $value;
+			}
+		} elseif ( is_object( $value ) ) {
+			// Recursively process object properties
+			$modified = false;
+			foreach ( $value as $key => $item ) {
+				$new_item = self::safely_replace_in_value( $item, $old_url, $new_url );
+				if ( $new_item !== $item ) {
+					$value->$key = $new_item;
+					$modified = true;
+				}
+			}
+			if ( $modified ) {
+				return $value;
+			}
+		}
+
+		return $value;
+	}
+
+	/**
 	 * Update database references from old image URLs to WebP
 	 *
 	 * @return array Update statistics
@@ -148,14 +206,28 @@ HTACCESS;
 		$upload_url = $upload_dir['baseurl'];
 		$upload_path = $upload_dir['basedir'];
 
+		// Get all converted attachments
+		$converted_attachments = get_posts( array(
+			'post_type'      => 'attachment',
+			'posts_per_page' => -1,
+			'post_status'    => 'inherit',
+			'meta_query'     => array(
+				array(
+					'key'     => '_webp_converted',
+					'value'   => 1,
+					'compare' => '=',
+				),
+			),
+		) );
+
 		// First, fix any old full-path metadata from previous conversions
 		$old_path_attachments = get_posts( array(
-			'post_type' => 'attachment',
+			'post_type'      => 'attachment',
 			'posts_per_page' => -1,
-			'post_status' => 'inherit',
-			'meta_query' => array(
+			'post_status'    => 'inherit',
+			'meta_query'     => array(
 				array(
-					'key' => '_webp_original_file',
+					'key'     => '_webp_original_file',
 					'compare' => 'EXISTS',
 				),
 			),
@@ -167,25 +239,8 @@ HTACCESS;
 				// Convert full path to relative path
 				$relative_path = str_replace( $upload_path . '/', '', $original_file );
 				update_post_meta( $attach->ID, '_webp_original_file', $relative_path );
-
 			}
 		}
-
-		// Get all attachments that have been converted to WebP
-		$args = array(
-			'post_type' => 'attachment',
-			'posts_per_page' => -1,
-			'post_status' => 'inherit',
-			'meta_query' => array(
-				array(
-					'key' => '_webp_converted',
-					'value' => 1,
-					'compare' => '=',
-				),
-			),
-		);
-
-		$converted_attachments = get_posts( $args );
 
 		// For each converted attachment, update references in the database
 		foreach ( $converted_attachments as $attachment ) {
@@ -238,196 +293,86 @@ HTACCESS;
 				$old_url = $relative_path;
 				$new_url = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_path );
 
-				// Update posts table
-				$count = $wpdb->query(
+				// Update posts table - simple string replace is safe for post_content
+				$posts = get_posts( array(
+					'posts_per_page' => -1,
+					'post_status'    => 'any',
+					s      => "post_content LIKE '%" . esc_sql( $old_url ) . "%'",
+				) );
+
+				foreach ( $posts as $post ) {
+					$new_content = str_replace( $old_url, $new_url, $post->post_content );
+					if ( $new_content !== $post->post_content ) {
+						wp_update_post( array(
+							'ID'           => $post->ID,
+							'post_content' => $new_content,
+						) );
+						$file_posts++;
+						$stats['posts_updated']++;
+					}
+				}
+
+				// Update postmeta - use safe serialization-aware replacement
+				$postmeta_rows = $wpdb->get_results(
 					$wpdb->prepare(
-						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
+						"SELECT meta_id, post_id, meta_value FROM $wpdb->postmeta WHERE meta_value LIKE %s",
+						'%' . $wpdb->esc_like( $old_url ) . '%'
 					)
 				);
-				$file_posts += $count;
-				$stats['posts_updated'] += $count;
 
-				// Update postmeta table
-				$count = $wpdb->query(
+				if ( ! empty( $postmeta_rows ) ) {
+					foreach ( $postmeta_rows as $row ) {
+						$new_value = self::safely_replace_in_value( $row->meta_value, $old_url, $new_url );
+						if ( $new_value !== $row->meta_value ) {
+							update_post_meta( $row->post_id, get_post_meta_by_id( $row->meta_id )->meta_key, $new_value, $row->meta_value );
+							$file_postmeta++;
+							$stats['postmeta_updated']++;
+						}
+					}
+				}
+
+				// Update options table - use safe serialization-aware replacement
+				$option_rows = $wpdb->get_results(
 					$wpdb->prepare(
-						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
+						"SELECT option_id, option_name, option_value FROM $wpdb->options WHERE option_value LIKE %s",
+						'%' . $wpdb->esc_like( $old_url ) . '%'
 					)
 				);
-				$file_postmeta += $count;
-				$stats['postmeta_updated'] += $count;
 
-				// Update options table
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
-					)
-				);
-				$file_options += $count;
-				$stats['options_updated'] += $count;
+				if ( ! empty( $option_rows ) ) {
+					foreach ( $option_rows as $row ) {
+						$new_value = self::safely_replace_in_value( $row->option_value, $old_url, $new_url );
+						if ( $new_value !== $row->option_value ) {
+							update_option( $row->option_name, $new_value );
+							$file_options++;
+							$stats['options_updated']++;
+						}
+					}
+				}
 
-				// Update links table
+				// Update links table - use safe serialization-aware replacement
 				if ( $wpdb->get_var( "SHOW TABLES LIKE '$wpdb->links'" ) ) {
-					$count = $wpdb->query(
+					$link_rows = $wpdb->get_results(
 						$wpdb->prepare(
-							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url,
-							$new_url,
-							'%' . $old_url . '%'
+							"SELECT link_id, link_image FROM $wpdb->links WHERE link_image LIKE %s",
+							'%' . $wpdb->esc_like( $old_url ) . '%'
 						)
 					);
-					$file_links += $count;
-					$stats['links_updated'] += $count;
+
+					if ( ! empty( $link_rows ) ) {
+						foreach ( $link_rows as $row ) {
+							$new_value = self::safely_replace_in_value( $row->link_image, $old_url, $new_url );
+							if ( $new_value !== $row->link_image ) {
+								$wpdb->update( $wpdb->links, array( 'link_image' => $new_value ), array( 'link_id' => $row->link_id ) );
+								$file_links++;
+								$stats['links_updated']++;
+							}
+						}
+					}
 				}
 
 				// Log this file's update counts
 				WIC_File_Logger::log_database_update( $file_to_replace, $file_posts, $file_postmeta, $file_options, $file_links, 'primary' );
-			}
-		}
-
-		// FALLBACK: Handle legacy conversions where _webp_original_file postmeta doesn't exist
-		// but _webp_converted = 1 exists (images converted before this postmeta was implemented)
-		$fallback_args = array(
-			'post_type' => 'attachment',
-			'posts_per_page' => -1,
-			'post_status' => 'inherit',
-			'meta_query' => array(
-				'relation' => 'AND',
-				array(
-					'key' => '_webp_converted',
-					'value' => 1,
-					'compare' => '=',
-				),
-				array(
-					'key' => '_webp_original_file',
-					'compare' => 'NOT EXISTS',
-				),
-			),
-		);
-
-		$legacy_attachments = get_posts( $fallback_args );
-
-		// For each legacy converted attachment, try to recover original filename and update references
-		foreach ( $legacy_attachments as $attachment ) {
-			// Try to get the original filename from post_content or by checking if WebP exists
-			$metadata = wp_get_attachment_metadata( $attachment->ID );
-			if ( ! is_array( $metadata ) || ! isset( $metadata['file'] ) ) {
-				continue;
-			}
-
-			$current_file = $metadata['file'];
-
-			// Check if current file is already WebP - if so, we can infer the original
-			if ( preg_match( '/\.webp$/i', $current_file ) ) {
-				// Current file is .webp, so infer the original by checking what format it came from
-				// Try common formats: .jpg, .jpeg, .png, .gif
-				$original_file = preg_replace( '/\.webp$/i', '.jpg', $current_file );
-				
-				// Verify by checking if the WebP file actually exists
-				$webp_full_path = $upload_path . '/' . $current_file;
-				if ( ! file_exists( $webp_full_path ) ) {
-					continue; // WebP file doesn't exist, skip
-				}
-
-				// Store the inferred original for future use
-				update_post_meta( $attachment->ID, '_webp_original_file', $original_file );
-			} else {
-				// Shouldn't happen, but if the main file is still in original format, skip
-				continue;
-			}
-
-			// Now process this attachment with the recovered original filename
-			$files_to_replace = array( $original_file );
-
-			// Get attachment metadata to find intermediate sizes
-			if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-				$image_dir = dirname( $original_file );
-				foreach ( $metadata['sizes'] as $size_name => $size_data ) {
-					if ( isset( $size_data['file'] ) ) {
-						// Check if intermediate size is already WebP
-						if ( preg_match( '/\.webp$/i', $size_data['file'] ) ) {
-							// Infer original format
-							$intermediate_file = preg_replace( '/\.webp$/i', '.jpg', $size_data['file'] );
-							$files_to_replace[] = $intermediate_file;
-						}
-					}
-				}
-			}
-
-			// Process each file (main + intermediate sizes)
-			foreach ( $files_to_replace as $file_to_replace ) {
-				// Track stats for this specific file
-				$file_posts = 0;
-				$file_postmeta = 0;
-				$file_options = 0;
-				$file_links = 0;
-
-				// Build search and replace URLs using relative path from WordPress root
-				// This pattern will match in any context: /path, path, https://domain/path, etc.
-				$relative_path = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
-				$old_url = $relative_path;
-				$new_url = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_path );
-
-				// Update posts table
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
-					)
-				);
-				$file_posts += $count;
-				$stats['posts_updated'] += $count;
-
-				// Update postmeta table
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
-					)
-				);
-				$file_postmeta += $count;
-				$stats['postmeta_updated'] += $count;
-
-				// Update options table
-				$count = $wpdb->query(
-					$wpdb->prepare(
-						"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
-					)
-				);
-				$file_options += $count;
-				$stats['options_updated'] += $count;
-
-				// Update links table
-				if ( $wpdb->get_var( "SHOW TABLES LIKE '$wpdb->links'" ) ) {
-					$count = $wpdb->query(
-						$wpdb->prepare(
-							"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-							$old_url,
-							$new_url,
-							'%' . $old_url . '%'
-						)
-					);
-					$file_links += $count;
-					$stats['links_updated'] += $count;
-				}
-
-				// Log this file's update counts
-				WIC_File_Logger::log_database_update( $file_to_replace, $file_posts, $file_postmeta, $file_options, $file_links, 'legacy' );
 			}
 		}
 
@@ -446,8 +391,6 @@ HTACCESS;
 	 * @return array Update stats for this attachment
 	 */
 	public static function update_database_references_for_attachment( $attachment_id ) {
-		global $wpdb;
-
 		$stats = array(
 			'posts_updated' => 0,
 			'postmeta_updated' => 0,
@@ -463,7 +406,6 @@ HTACCESS;
 
 		// Get upload directory
 		$upload_dir = wp_upload_dir();
-		$upload_url = $upload_dir['baseurl'];
 		$upload_path = $upload_dir['basedir'];
 
 		// Get the original file
@@ -532,59 +474,92 @@ HTACCESS;
 			$file_links = 0;
 
 			// Build search and replace URLs using relative path from WordPress root
-			// This pattern will match in any context: /path, path, https://domain/path, etc.
 			$relative_path = str_replace( ABSPATH, '', $upload_path . '/' . $file_to_replace );
 			$old_url = $relative_path;
 			$new_url = str_replace( $file_to_replace, preg_replace( '/\.(jpg|jpeg|png|gif)$/i', '.webp', $file_to_replace ), $relative_path );
 
-			// Update posts table
-			$count = $wpdb->query(
+			// Update posts table - simple string replace is safe for post_content
+			$posts = get_posts( array(
+				'posts_per_page' => -1,
+				'post_status'    => 'any',
+				's'              => esc_sql( $old_url ),
+			) );
+
+			foreach ( $posts as $post ) {
+				$new_content = str_replace( $old_url, $new_url, $post->post_content );
+				if ( $new_content !== $post->post_content ) {
+					wp_update_post( array(
+						'ID'           => $post->ID,
+						'post_content' => $new_content,
+					) );
+					$file_posts++;
+					$stats['posts_updated']++;
+				}
+			}
+
+			// Update postmeta - use safe serialization-aware replacement
+			global $wpdb;
+			$postmeta_rows = $wpdb->get_results(
 				$wpdb->prepare(
-					"UPDATE $wpdb->posts SET post_content = REPLACE(post_content, %s, %s) WHERE post_content LIKE %s",
-					$old_url,
-					$new_url,
-					'%' . $old_url . '%'
+					"SELECT meta_id, post_id, meta_value FROM $wpdb->postmeta WHERE meta_value LIKE %s",
+					'%' . $wpdb->esc_like( $old_url ) . '%'
 				)
 			);
-			$file_posts += $count;
-			$stats['posts_updated'] += $count;
 
-			// Update postmeta table
-			$count = $wpdb->query(
+			if ( ! empty( $postmeta_rows ) ) {
+				foreach ( $postmeta_rows as $row ) {
+					$new_value = self::safely_replace_in_value( $row->meta_value, $old_url, $new_url );
+					if ( $new_value !== $row->meta_value ) {
+						// Get the meta key for this row
+						$meta_key = $wpdb->get_var( $wpdb->prepare(
+							"SELECT meta_key FROM $wpdb->postmeta WHERE meta_id = %d",
+							$row->meta_id
+						) );
+						update_post_meta( $row->post_id, $meta_key, $new_value, $row->meta_value );
+						$file_postmeta++;
+						$stats['postmeta_updated']++;
+					}
+				}
+			}
+
+			// Update options table - use safe serialization-aware replacement
+			$option_rows = $wpdb->get_results(
 				$wpdb->prepare(
-					"UPDATE $wpdb->postmeta SET meta_value = REPLACE(meta_value, %s, %s) WHERE meta_value LIKE %s",
-					$old_url,
-					$new_url,
-					'%' . $old_url . '%'
+					"SELECT option_id, option_name, option_value FROM $wpdb->options WHERE option_value LIKE %s",
+					'%' . $wpdb->esc_like( $old_url ) . '%'
 				)
 			);
-			$file_postmeta += $count;
-			$stats['postmeta_updated'] += $count;
 
-			// Update options table
-			$count = $wpdb->query(
-				$wpdb->prepare(
-					"UPDATE $wpdb->options SET option_value = REPLACE(option_value, %s, %s) WHERE option_value LIKE %s",
-					$old_url,
-					$new_url,
-					'%' . $old_url . '%'
-				)
-			);
-			$file_options += $count;
-			$stats['options_updated'] += $count;
+			if ( ! empty( $option_rows ) ) {
+				foreach ( $option_rows as $row ) {
+					$new_value = self::safely_replace_in_value( $row->option_value, $old_url, $new_url );
+					if ( $new_value !== $row->option_value ) {
+						update_option( $row->option_name, $new_value );
+						$file_options++;
+						$stats['options_updated']++;
+					}
+				}
+			}
 
-			// Update links table
+			// Update links table - use safe serialization-aware replacement
 			if ( $wpdb->get_var( "SHOW TABLES LIKE '$wpdb->links'" ) ) {
-				$count = $wpdb->query(
+				$link_rows = $wpdb->get_results(
 					$wpdb->prepare(
-						"UPDATE $wpdb->links SET link_image = REPLACE(link_image, %s, %s) WHERE link_image LIKE %s",
-						$old_url,
-						$new_url,
-						'%' . $old_url . '%'
+						"SELECT link_id, link_image FROM $wpdb->links WHERE link_image LIKE %s",
+						'%' . $wpdb->esc_like( $old_url ) . '%'
 					)
 				);
-				$file_links += $count;
-				$stats['links_updated'] += $count;
+
+				if ( ! empty( $link_rows ) ) {
+					foreach ( $link_rows as $row ) {
+						$new_value = self::safely_replace_in_value( $row->link_image, $old_url, $new_url );
+						if ( $new_value !== $row->link_image ) {
+							$wpdb->update( $wpdb->links, array( 'link_image' => $new_value ), array( 'link_id' => $row->link_id ) );
+							$file_links++;
+							$stats['links_updated']++;
+						}
+					}
+				}
 			}
 
 			// Log this file update
