@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class WIC_Update_Checker {
 	private static $instance = null;
-	private $github_repo = 'Gliffen-Designs/Gliffen-WebP-Converter'; // Change this!
+	private $github_repo = 'Gliffen-Designs/Gliffen-WebP-Converter-Plugin';
 	private $plugin_file = 'Gliffen-WebP-Converter/webp-image-converter.php';
 	private $transient_key = 'wic_github_release_info';
 	private $cache_duration = 12 * HOUR_IN_SECONDS; // Check every 12 hours
@@ -46,7 +46,7 @@ class WIC_Update_Checker {
 			return $transient;
 		}
 
-		$current_version = WIC_VERSION;
+		$current_version = $this->get_current_version();
 		$remote_version = $release_info['version'];
 
 		// Compare versions
@@ -138,8 +138,8 @@ class WIC_Update_Checker {
 			return false;
 		}
 
-		// Extract version from tag (e.g., "v1.0.5" -> "1.0.5")
-		$version = preg_replace( '/^v/', '', $data['tag_name'] );
+		// Extract version from tag (e.g., "v1.0.5" or "V1.0.5" -> "1.0.5")
+		$version = preg_replace( '/^[vV]/', '', $data['tag_name'] );
 
 		// Find the plugin zip file in assets
 		$package_url = false;
@@ -171,6 +171,17 @@ class WIC_Update_Checker {
 		set_transient( $this->transient_key, $release_info, $this->cache_duration );
 
 		return $release_info;
+	}
+
+	/**
+	 * Get the current plugin version from the header
+	 */
+	private function get_current_version() {
+		$plugin_data = get_file_data(
+			WIC_PLUGIN_DIR . 'webp-image-converter.php',
+			array( 'Version' => 'Version' )
+		);
+		return $plugin_data['Version'] ?: '1.0.0';
 	}
 
 	/**

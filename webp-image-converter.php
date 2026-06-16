@@ -3,7 +3,7 @@
  * Plugin Name: Gliffen WebP Converter
  * Plugin URI: https://gliffen.com
  * Description: Convert images to WebP format with intelligent URL redirects and space savings
- * Version: 1.0.2
+ * Version: 1.0.1
  * Author: Gliffen
  * Author URI: https://thecoda.com
  * License: GPL v2 or later
@@ -18,7 +18,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'WIC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WIC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'WIC_VERSION', '1.0.1' );
 
 // Require all necessary classes
 require_once WIC_PLUGIN_DIR . 'inc/class-file-logger.php';
