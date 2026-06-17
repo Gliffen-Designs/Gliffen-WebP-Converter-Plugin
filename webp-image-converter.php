@@ -3,9 +3,9 @@
  * Plugin Name: Gliffen WebP Converter
  * Plugin URI: https://gliffen.com
  * Description: Convert images to WebP format with intelligent URL redirects and space savings
- * Version: 1.0.1
+ * Version: 1.0.4
  * Author: Gliffen
- * Author URI: https://thecoda.com
+ * Author URI: https://gliffen.com
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: webp-image-converter

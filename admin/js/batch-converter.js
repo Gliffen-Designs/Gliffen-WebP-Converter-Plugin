@@ -3,6 +3,8 @@
 
 	let isConverting = false;
 	let totalConvertedSoFar = 0;
+	let initialConvertedCount = 0;
+	let initialRemainingCount = 0;
 
 	// Start conversion
 	$('#start-conversion-btn').on('click', function() {
@@ -10,6 +12,8 @@
 
 		isConverting = true;
 		totalConvertedSoFar = 0;
+		initialConvertedCount = parseInt($('#converted-count').text(), 10) || 0;
+		initialRemainingCount = parseInt($('#remaining-count').text(), 10) || 0;
 
 		$('#start-conversion-btn').hide();
 		$('#stop-conversion-btn').show();
@@ -53,16 +57,18 @@
 
 					// Update total converted so far
 					totalConvertedSoFar = data.total_converted_so_far;
+						const liveConvertedCount = initialConvertedCount + totalConvertedSoFar;
+						const liveRemainingCount = Math.max(0, initialRemainingCount - totalConvertedSoFar);
 
 					// Update status text
 					$('#progress-text').text(
-						'Converted: ' + data.total_converted + 
-						' | Remaining: ' + data.total_remaining + ' | Progress: ' + progressPercent + '%'
+							'Converted: ' + liveConvertedCount +
+							' | Remaining: ' + liveRemainingCount + ' | Progress: ' + progressPercent + '%'
 					);
 
 					// Update stats on page
-					$('#converted-count').text(data.total_converted);
-					$('#remaining-count').text(data.total_remaining);
+						$('#converted-count').text(liveConvertedCount);
+						$('#remaining-count').text(liveRemainingCount);
 
 					if (data.done) {
 						// Conversion complete or max limit reached

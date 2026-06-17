@@ -7,8 +7,29 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+// Require necessary classes using relative path
+if ( ! class_exists( 'WIC_Converter' ) ) {
+	require_once dirname( __DIR__ ) . '/inc/class-converter.php';
+}
+if ( ! class_exists( 'WIC_Settings' ) ) {
+	require_once dirname( __DIR__ ) . '/inc/class-settings.php';
+}
+if ( ! class_exists( 'WIC_Redirect_Handler' ) ) {
+	require_once dirname( __DIR__ ) . '/inc/class-redirect-handler.php';
+}
 
 class WIC_Admin_Page {
+
+	/**
+	 * Get plugin version from header
+	 */
+	private static function get_plugin_version() {
+		if ( ! function_exists( 'get_plugin_data' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		$plugin_data = get_plugin_data( dirname( __DIR__ ) . '/webp-image-converter.php' );
+		return isset( $plugin_data['Version'] ) ? $plugin_data['Version'] : '1.0.0';
+	}
 
 	/**
 	 * Initialize admin page
@@ -54,7 +75,7 @@ class WIC_Admin_Page {
 				'wic-batch-converter',
 				WIC_PLUGIN_URL . 'admin/js/batch-converter.js',
 				array( 'jquery' ),
-				WIC_VERSION,
+				self::get_plugin_version(),
 				true
 			);
 
@@ -72,7 +93,7 @@ class WIC_Admin_Page {
 				'wic-admin-style',
 				WIC_PLUGIN_URL . 'admin/css/admin-style.css',
 				array(),
-				WIC_VERSION
+				self::get_plugin_version()
 			);
 		}
 
@@ -82,7 +103,7 @@ class WIC_Admin_Page {
 				'wic-media-library',
 				WIC_PLUGIN_URL . 'admin/js/media-library.js',
 				array( 'jquery' ),
-				WIC_VERSION,
+				self::get_plugin_version(),
 				true
 			);
 
@@ -99,7 +120,7 @@ class WIC_Admin_Page {
 				'wic-media-style',
 				WIC_PLUGIN_URL . 'admin/css/media-library.css',
 				array(),
-				WIC_VERSION
+				self::get_plugin_version()
 			);
 		}
 	}
@@ -179,7 +200,7 @@ class WIC_Admin_Page {
 						</button>
 						<div>
 							<label for="max-images" style="display: block; margin-bottom: 5px;"><strong>Max Images to Process:</strong></label>
-							<input type="number" id="max-images" min="1" max="10000" value="500" style="width: 120px; padding: 5px;" />
+							<input type="number" id="max-images" min="1" max="10000" value="50" style="width: 120px; padding: 5px;" />
 						</div>
 					</div>
 				</div>
