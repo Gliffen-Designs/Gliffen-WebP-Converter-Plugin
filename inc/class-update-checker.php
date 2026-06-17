@@ -52,19 +52,28 @@ class WIC_Update_Checker {
 
 		$current_version = $this->get_current_version();
 		$remote_version = $release_info['version'];
+		$plugin_data = (object) array(
+			'slug'        => $this->plugin_slug,
+			'plugin'      => $this->plugin_file,
+			'new_version' => $remote_version,
+			'url'         => $release_info['url'],
+			'package'     => $release_info['package'],
+			'tested'      => $release_info['tested'],
+			'requires'    => '5.0',
+			'icons'       => array(),
+		);
 
 		// Compare versions
 		if ( version_compare( $remote_version, $current_version, '>' ) ) {
-			$transient->response[ $this->plugin_file ] = (object) array(
-				'slug'        => $this->plugin_slug,
-				'plugin'      => $this->plugin_file,
-				'new_version' => $remote_version,
-				'url'         => $release_info['url'],
-				'package'     => $release_info['package'],
-				'tested'      => $release_info['tested'],
-				'requires'    => '5.0',
-				'icons'       => array(),
-			);
+			$transient->response[ $this->plugin_file ] = $plugin_data;
+			if ( isset( $transient->no_update[ $this->plugin_file ] ) ) {
+				unset( $transient->no_update[ $this->plugin_file ] );
+			}
+		} else {
+			$transient->no_update[ $this->plugin_file ] = $plugin_data;
+			if ( isset( $transient->response[ $this->plugin_file ] ) ) {
+				unset( $transient->response[ $this->plugin_file ] );
+			}
 		}
 
 		return $transient;
