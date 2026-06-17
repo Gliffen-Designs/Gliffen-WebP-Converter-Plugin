@@ -1,9 +1,10 @@
 <?php
 /**
  * Plugin Name: Gliffen WebP Converter
- * Plugin URI: https://gliffen.com
+ * Plugin URI: https://github.com/Gliffen-Designs/Gliffen-WebP-Converter-Plugin
  * Description: Convert images to WebP format with intelligent URL redirects and space savings
  * Version: 1.0.4
+ * Update URI: https://github.com/Gliffen-Designs/Gliffen-WebP-Converter-Plugin
  * Author: Gliffen
  * Author URI: https://gliffen.com
  * License: GPL v2 or later

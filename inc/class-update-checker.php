@@ -15,7 +15,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class WIC_Update_Checker {
 	private static $instance = null;
 	private $github_repo = 'Gliffen-Designs/Gliffen-WebP-Converter-Plugin';
-	private $plugin_file = 'Gliffen-WebP-Converter/webp-image-converter.php';
+	private $plugin_file = '';
+	private $plugin_slug = 'gliffen-webp-converter';
 	private $transient_key = 'wic_github_release_info';
 	private $cache_duration = 12 * HOUR_IN_SECONDS; // Check every 12 hours
 
@@ -27,6 +28,9 @@ class WIC_Update_Checker {
 	}
 
 	private function __construct() {
+		// Resolve plugin path dynamically in case folder name differs per install.
+		$this->plugin_file = plugin_basename( WIC_PLUGIN_DIR . 'webp-image-converter.php' );
+
 		// Hook into WordPress update checks
 		add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_updates' ) );
 		add_filter( 'plugins_api', array( $this, 'plugin_info' ), 10, 3 );
@@ -52,7 +56,7 @@ class WIC_Update_Checker {
 		// Compare versions
 		if ( version_compare( $remote_version, $current_version, '>' ) ) {
 			$transient->response[ $this->plugin_file ] = (object) array(
-				'slug'        => 'Gliffen-WebP-Converter',
+				'slug'        => $this->plugin_slug,
 				'plugin'      => $this->plugin_file,
 				'new_version' => $remote_version,
 				'url'         => $release_info['url'],
@@ -74,7 +78,8 @@ class WIC_Update_Checker {
 			return $response;
 		}
 
-		if ( ! isset( $args->slug ) || $args->slug !== 'Gliffen-WebP-Converter' ) {
+		$accepted_slugs = array( $this->plugin_slug, 'Gliffen-WebP-Converter', 'gliffen-webp-converter-plugin' );
+		if ( ! isset( $args->slug ) || ! in_array( $args->slug, $accepted_slugs, true ) ) {
 			return $response;
 		}
 
@@ -86,7 +91,7 @@ class WIC_Update_Checker {
 
 		return (object) array(
 			'name'              => 'Gliffen WebP Converter',
-			'slug'              => 'Gliffen-WebP-Converter',
+			'slug'              => $this->plugin_slug,
 			'version'           => $release_info['version'],
 			'author'            => 'Gliffen',
 			'author_profile'    => 'https://github.com/Gliffen-Designs', // Change this!
@@ -121,6 +126,10 @@ class WIC_Update_Checker {
 		$response = wp_remote_get(
 			$url,
 			array(
+				'headers'   => array(
+					'Accept'     => 'application/vnd.github+json',
+					'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url( '/' ),
+				),
 				'sslverify' => true,
 				'timeout'   => 10,
 			)
@@ -128,6 +137,12 @@ class WIC_Update_Checker {
 
 		if ( is_wp_error( $response ) ) {
 			WIC_File_Logger::log( 'GitHub update check failed: ' . $response->get_error_message(), 'error' );
+			return false;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $code ) {
+			WIC_File_Logger::log( 'GitHub update check failed with HTTP ' . $code, 'error' );
 			return false;
 		}
 
@@ -139,7 +154,7 @@ class WIC_Update_Checker {
 		}
 
 		// Extract version from tag (e.g., "v1.0.5" or "V1.0.5" -> "1.0.5")
-		$version = preg_replace( '/^[vV]/', '', $data['tag_name'] );
+		$version = trim( preg_replace( '/^[vV]/', '', $data['tag_name'] ) );
 
 		// Find the plugin zip file in assets
 		$package_url = false;
@@ -189,5 +204,6 @@ class WIC_Update_Checker {
 	 */
 	public static function clear_cache() {
 		delete_transient( 'wic_github_release_info' );
+		delete_site_transient( 'update_plugins' );
 	}
 }
