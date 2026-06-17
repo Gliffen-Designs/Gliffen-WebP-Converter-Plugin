@@ -174,31 +174,53 @@ class WIC_Converter {
 	 * @return string|false WebP URL if found, false otherwise
 	 */
 	public function find_webp_equivalent( $requested_url ) {
-		// Remove query strings
-		$clean_url = strtok( $requested_url, '?' );
-
-		// Get the file path from URL
 		$upload_dir = wp_upload_dir();
-		$base_path = $upload_dir['basedir'];
-		$base_url = $upload_dir['baseurl'];
+		$base_path  = wp_normalize_path( $upload_dir['basedir'] );
+		$base_url   = $upload_dir['baseurl'];
 
-		// Convert URL to file path
-		$file_path = str_replace( $base_url, $base_path, $clean_url );
-
-		// Check if original file path exists
-		if ( ! file_exists( $file_path ) ) {
-			// Try to find WebP equivalent
-			$path_info = pathinfo( $file_path );
-			$webp_path = $path_info['dirname'] . '/' . $path_info['filename'] . '.webp';
-
-			if ( file_exists( $webp_path ) ) {
-				// Convert back to URL
-				$webp_url = str_replace( $base_path, $base_url, $webp_path );
-				return $webp_url;
-			}
+		// Normalize request input: support absolute URLs and site-relative paths.
+		$parsed_path = wp_parse_url( $requested_url, PHP_URL_PATH );
+		if ( ! is_string( $parsed_path ) || '' === $parsed_path ) {
+			return false;
 		}
 
-		return false;
+		$clean_path = rawurldecode( $parsed_path );
+		$file_path  = '';
+
+		if ( strpos( $requested_url, $base_url ) === 0 ) {
+			// Absolute uploads URL case.
+			$file_path = str_replace( $base_url, $base_path, $requested_url );
+			$file_path = wp_parse_url( $file_path, PHP_URL_PATH );
+		} else {
+			// Typical REQUEST_URI case: /wp-content/uploads/...
+			$file_path = ABSPATH . ltrim( $clean_path, '/' );
+		}
+
+		$file_path = wp_normalize_path( (string) $file_path );
+
+		// Only handle paths inside uploads.
+		if ( strpos( $file_path, $base_path . '/' ) !== 0 ) {
+			return false;
+		}
+
+		// Only redirect when original is missing.
+		if ( file_exists( $file_path ) ) {
+			return false;
+		}
+
+		$path_info = pathinfo( $file_path );
+		if ( empty( $path_info['dirname'] ) || empty( $path_info['filename'] ) ) {
+			return false;
+		}
+
+		$webp_path = $path_info['dirname'] . '/' . $path_info['filename'] . '.webp';
+		if ( ! file_exists( $webp_path ) ) {
+			return false;
+		}
+
+		// Convert local uploads path back to public uploads URL.
+		$relative_webp = ltrim( str_replace( $base_path, '', $webp_path ), '/' );
+		return trailingslashit( $base_url ) . $relative_webp;
 	}
 
 	/**
