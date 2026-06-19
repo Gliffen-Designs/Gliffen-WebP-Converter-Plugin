@@ -20,6 +20,30 @@ class WIC_File_Logger {
 	}
 
 	/**
+	 * Log a generic message.
+	 *
+	 * @param string $message Message to write to the log.
+	 * @param string $level Log level label.
+	 */
+	public static function log( $message, $level = 'info' ) {
+		if ( ! self::$log_file ) {
+			self::init();
+		}
+
+		$timestamp = current_time( 'Y-m-d H:i:s' );
+		$log_entry = sprintf(
+			"[%s] [%s] %s\n",
+			$timestamp,
+			strtoupper( $level ),
+			$message
+		);
+
+		if ( is_writable( dirname( self::$log_file ) ) ) {
+			file_put_contents( self::$log_file, $log_entry, FILE_APPEND );
+		}
+	}
+
+	/**
 	 * Log a conversion entry
 	 *
 	 * @param string $filename Original filename

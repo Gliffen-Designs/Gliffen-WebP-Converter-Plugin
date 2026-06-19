@@ -16,6 +16,13 @@ class WIC_Converter {
 	const SUPPORTED_FORMATS = array( 'jpg', 'jpeg', 'png', 'gif' );
 
 	/**
+	 * Attachment meta keys for failed conversions
+	 */
+	const FAILED_CONVERSION_META_KEY = '_wic_webp_conversion_failed';
+	const FAILED_CONVERSION_REASON_META_KEY = '_wic_webp_conversion_failed_reason';
+	const FAILED_CONVERSION_TIME_META_KEY = '_wic_webp_conversion_failed_at';
+
+	/**
 	 * Convert image to WebP
 	 *
 	 * @param string $image_path Path to original image file
@@ -239,6 +246,11 @@ class WIC_Converter {
 		$all_images = get_posts( $args );
 
 		foreach ( $all_images as $image ) {
+			// Skip files that have already failed conversion in batch mode.
+			if ( $this->is_attachment_marked_failed( $image->ID ) ) {
+				continue;
+			}
+
 			$image_path = get_attached_file( $image->ID );
 
 			// Skip if file path is invalid or doesn't exist
@@ -288,6 +300,7 @@ class WIC_Converter {
 			'total_images' => count( $all_images ),
 			'converted_count' => 0,
 			'unconverted_count' => 0,
+			'failed_count' => 0,
 			'total_original_size' => 0,
 			'total_webp_size' => 0,
 			'potential_savings' => 0,
@@ -320,6 +333,9 @@ class WIC_Converter {
 					$stats['converted_count']++;
 					$webp_size = filesize( $webp_path );
 					$stats['total_webp_size'] += $webp_size;
+				} elseif ( $this->is_attachment_marked_failed( $image->ID ) ) {
+					// Failed images are tracked separately and excluded from remaining queue.
+					$stats['failed_count']++;
 				} else {
 					// No WebP, so it's unconverted
 					$stats['unconverted_count']++;
@@ -345,6 +361,7 @@ class WIC_Converter {
 		$image_path = get_attached_file( $attachment_id );
 
 		if ( ! $image_path || ! file_exists( $image_path ) ) {
+			$this->mark_attachment_failed( $attachment_id, 'Attachment file not found' );
 			return new WP_Error( 'file_not_found', 'Attachment file not found' );
 		}
 
@@ -357,6 +374,7 @@ class WIC_Converter {
 		$converted_count = 0;
 		$failed_count = 0;
 		$converted_sizes = array();
+		$failure_messages = array();
 
 		// Convert main image
 		$main_result = $this->convert_image( $image_path, $quality, $backup );
@@ -367,6 +385,9 @@ class WIC_Converter {
 			$converted_sizes['main'] = $main_result['webp_path'];
 		} else {
 			$failed_count++;
+			if ( is_wp_error( $main_result ) ) {
+				$failure_messages[] = $main_result->get_error_message();
+			}
 		}
 
 		// Convert intermediate sizes
@@ -409,14 +430,27 @@ class WIC_Converter {
 					$converted_sizes[ $size_name ] = $result['webp_path'];
 				} else {
 					$failed_count++;
+					if ( is_wp_error( $result ) ) {
+						$failure_messages[] = sprintf( '%s: %s', $size_name, $result->get_error_message() );
+					}
 				}
 			}
 		}
 
 		// Update metadata with conversion info
-		$metadata['webp_converted'] = true;
+		$metadata['webp_converted'] = $converted_count > 0;
 		$metadata['webp_converted_count'] = $converted_count;
 		wp_update_attachment_metadata( $attachment_id, $metadata );
+
+		if ( $converted_count > 0 ) {
+			$this->clear_attachment_failed( $attachment_id );
+		} else {
+			$error_message = ! empty( $failure_messages )
+				? implode( ' | ', array_unique( $failure_messages ) )
+				: 'Conversion failed for unknown reason';
+
+			$this->mark_attachment_failed( $attachment_id, $error_message );
+		}
 
 		return array(
 			'converted_count' => $converted_count,
@@ -491,7 +525,57 @@ class WIC_Converter {
 			update_post_meta( $attachment_id, '_webp_converted', 1 );
 		}
 
+		$this->clear_attachment_failed( $attachment_id );
+
 		return true;
+	}
+
+	/**
+	 * Mark an attachment as failed so batch conversion can skip it.
+	 *
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $reason Failure reason.
+	 *
+	 * @return void
+	 */
+	private function mark_attachment_failed( $attachment_id, $reason = '' ) {
+		$attachment_id = (int) $attachment_id;
+		if ( $attachment_id <= 0 ) {
+			return;
+		}
+
+		update_post_meta( $attachment_id, self::FAILED_CONVERSION_META_KEY, 1 );
+		update_post_meta( $attachment_id, self::FAILED_CONVERSION_REASON_META_KEY, sanitize_text_field( (string) $reason ) );
+		update_post_meta( $attachment_id, self::FAILED_CONVERSION_TIME_META_KEY, current_time( 'mysql' ) );
+	}
+
+	/**
+	 * Clear failed conversion markers when an attachment converts successfully.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 *
+	 * @return void
+	 */
+	private function clear_attachment_failed( $attachment_id ) {
+		$attachment_id = (int) $attachment_id;
+		if ( $attachment_id <= 0 ) {
+			return;
+		}
+
+		delete_post_meta( $attachment_id, self::FAILED_CONVERSION_META_KEY );
+		delete_post_meta( $attachment_id, self::FAILED_CONVERSION_REASON_META_KEY );
+		delete_post_meta( $attachment_id, self::FAILED_CONVERSION_TIME_META_KEY );
+	}
+
+	/**
+	 * Check if an attachment has been marked as failed.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 *
+	 * @return bool
+	 */
+	private function is_attachment_marked_failed( $attachment_id ) {
+		return (bool) get_post_meta( (int) $attachment_id, self::FAILED_CONVERSION_META_KEY, true );
 	}
 
 	/**
