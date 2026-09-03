@@ -184,11 +184,24 @@ HTACCESS;
 	}
 
 	/**
+	 * Number of attachments processed per batch.
+	 */
+	const DB_REFS_BATCH_SIZE = 20;
+
+	/**
 	 * Update database references from old image URLs to WebP
 	 *
-	 * @return array Update statistics
+	 * Processes attachments in batches so large media libraries do not hit
+	 * PHP time/memory limits. Pass an $offset to continue where the previous
+	 * batch left off. When $batch is true, only one batch is processed and the
+	 * result includes total/processed/done so the caller can request the next batch.
+	 *
+	 * @param int  $offset Number of attachments to skip (0 to start from the beginning).
+	 * @param bool $batch  True to process a single batch; false to process all at once.
+	 *
+	 * @return array Update statistics (plus total/processed/done when $batch is true).
 	 */
-	public static function update_database_references() {
+	public static function update_database_references( $offset = 0, $batch = false ) {
 		$stats = array(
 			'posts_updated' => 0,
 			'postmeta_updated' => 0,
@@ -200,11 +213,12 @@ HTACCESS;
 		$upload_dir = wp_upload_dir();
 		$upload_path = $upload_dir['basedir'];
 
-		// Get all attachments that are likely converted, including legacy records.
-		$converted_attachments = get_posts( array(
+		$attachment_query_args = array(
 			'post_type'      => 'attachment',
-			'posts_per_page' => -1,
 			'post_status'    => 'inherit',
+			'fields'         => 'ids',
+			'orderby'        => 'ID',
+			'order'          => 'ASC',
 			'meta_query'     => array(
 				'relation' => 'OR',
 				array(
@@ -222,7 +236,21 @@ HTACCESS;
 					'compare' => 'LIKE',
 				),
 			),
-		) );
+		);
+
+		// Count total converted attachments for progress tracking.
+		$total_query = new WP_Query( array_merge( $attachment_query_args, array( 'posts_per_page' => 1 ) ) );
+		$total_attachments = (int) $total_query->found_posts;
+
+		// Get the batch (or all) of converted attachment IDs, using a stable offset.
+		$query_args = array_merge(
+			$attachment_query_args,
+			array( 'posts_per_page' => $batch ? self::DB_REFS_BATCH_SIZE : -1 )
+		);
+		if ( $batch && $offset > 0 ) {
+			$query_args['offset'] = $offset;
+		}
+		$converted_attachment_ids = get_posts( $query_args );
 
 		// First, fix any old full-path metadata from previous conversions
 		$old_path_attachments = get_posts( array(
@@ -246,13 +274,33 @@ HTACCESS;
 			}
 		}
 
-		// For each converted attachment, run the single-attachment updater and aggregate stats.
-		foreach ( $converted_attachments as $attachment ) {
-			$attachment_stats = self::update_database_references_for_attachment( $attachment->ID );
+		// For each converted attachment in this batch, run the single-attachment updater.
+		foreach ( $converted_attachment_ids as $attachment_id ) {
+			$attachment_stats = self::update_database_references_for_attachment( $attachment_id );
 			$stats['posts_updated'] += (int) $attachment_stats['posts_updated'];
 			$stats['postmeta_updated'] += (int) $attachment_stats['postmeta_updated'];
 			$stats['options_updated'] += (int) $attachment_stats['options_updated'];
 			$stats['links_updated'] += (int) $attachment_stats['links_updated'];
+		}
+
+		if ( $batch ) {
+			$batch_count = count( $converted_attachment_ids );
+			$processed = $offset + $batch_count;
+			$done = ( $batch_count < self::DB_REFS_BATCH_SIZE ) || ( $processed >= $total_attachments );
+
+			$stats['total'] = $total_attachments;
+			$stats['batch_size'] = self::DB_REFS_BATCH_SIZE;
+			$stats['batch_count'] = $batch_count;
+			$stats['processed'] = $processed;
+			$stats['done'] = $done;
+			$stats['progress'] = $total_attachments > 0 ? round( ( $processed / $total_attachments ) * 100 ) : 100;
+
+			if ( $done ) {
+				// Log summary when the final batch completes.
+				WIC_File_Logger::log_database_update( '', $stats['posts_updated'], $stats['postmeta_updated'], $stats['options_updated'], $stats['links_updated'], 'complete' );
+			}
+
+			return $stats;
 		}
 
 		// Log summary of all updates

@@ -153,40 +153,99 @@
 		});
 	});
 
-	// Update database references
+	// Update database references (batched, 50 attachments per request)
+	let dbRefsStopped = false;
+
 	$('#update-db-refs-btn').on('click', function() {
 		if (!confirm('This will update all image URLs in your database. Continue?')) {
 			return;
 		}
 
-		$(this).prop('disabled', true).text('Updating...');
+		dbRefsStopped = false;
+		const $btn = $(this).prop('disabled', true).text('Updating...');
+		const $stopBtn = $('#stop-db-refs-btn').show();
+		const $progressBox = $('#db-refs-progress-box').show();
+		const $progressFill = $('#db-refs-progress-fill').css('width', '0%').text('');
+		const $progressText = $('#db-refs-progress-text').text('Starting database update...');
+		let dbRefsTotal = 0;
 
-		$.ajax({
-			url: wicAjax.ajax_url,
-			type: 'POST',
-			data: {
-				action: 'wic_update_db_refs',
-				nonce: wicAjax.nonce
-			},
-			success: function(response) {
-				if (response.success) {
-					showSuccess(response.data.message);
-					alert('Database References Updated:\n' +
-						'Posts updated: ' + response.data.stats.posts_updated + '\n' +
-						'Postmeta updated: ' + response.data.stats.postmeta_updated + '\n' +
-						'Options updated: ' + response.data.stats.options_updated + '\n' +
-						'Links updated: ' + response.data.stats.links_updated);
-				} else {
-					showError('Failed to update database references.');
-				}
-			},
-			error: function() {
-				showError('An error occurred while updating database references.');
-			},
-			complete: function() {
-				$('#update-db-refs-btn').prop('disabled', false).text('Update Database References');
+		function finishDbRefs() {
+			$btn.prop('disabled', false).text('Update Database References');
+			$stopBtn.hide();
+		}
+
+		function runDbRefsBatch(offset) {
+			if (dbRefsStopped) {
+				$progressText.text('Stopped. Processed ' + offset + ' attachments.');
+				finishDbRefs();
+				return;
 			}
-		});
+
+			if (dbRefsTotal > 0) {
+				const startPercent = Math.min(100, Math.round((offset / dbRefsTotal) * 100));
+				$progressFill.css('width', startPercent + '%').text(startPercent + '%');
+				$progressText.text('Processed ' + Math.min(offset, dbRefsTotal) + ' of ' + dbRefsTotal + ' attachments...');
+			}
+
+			$.ajax({
+				url: wicAjax.ajax_url,
+				type: 'POST',
+				data: {
+					action: 'wic_update_db_refs',
+					nonce: wicAjax.nonce,
+					offset: offset
+				},
+				success: function(response) {
+					if (response.success) {
+						const data = response.data;
+						dbRefsTotal = data.total;
+
+						const progressPercent = data.progress;
+						$progressFill.css('width', progressPercent + '%').text(progressPercent + '%');
+						$progressText.text('Processed ' + data.processed + ' of ' + data.total + ' attachments...');
+
+						if (dbRefsStopped) {
+							$progressText.text('Stopped. Processed ' + data.processed + ' attachments.');
+							finishDbRefs();
+							return;
+						}
+
+						if (!data.done) {
+							// Continue with the next batch
+							runDbRefsBatch(data.next_offset);
+							return;
+						}
+
+						$progressText.text('Done! Processed ' + data.processed + ' attachments.');
+						showSuccess(data.message);
+						alert('Database References Updated:\n' +
+							'Attachments processed: ' + data.processed + '\n' +
+							'Posts updated: ' + data.stats.posts_updated + '\n' +
+							'Postmeta updated: ' + data.stats.postmeta_updated + '\n' +
+							'Options updated: ' + data.stats.options_updated + '\n' +
+							'Links updated: ' + data.stats.links_updated);
+						finishDbRefs();
+					} else {
+						showError('Failed to update database references.');
+						$progressText.text('Update failed.');
+						finishDbRefs();
+					}
+				},
+				error: function() {
+					showError('An error occurred while updating database references.');
+					$progressText.text('An error occurred.');
+					finishDbRefs();
+				}
+			});
+		}
+
+		runDbRefsBatch(0);
+	});
+
+	// Stop database references update
+	$('#stop-db-refs-btn').on('click', function() {
+		dbRefsStopped = true;
+		$('#db-refs-progress-text').text('Stopping after current batch...');
 	});
 
 	// Configure .htaccess

@@ -294,6 +294,14 @@ class WIC_Admin_Page {
 						Manually update all image URL references in the database to point to WebP files. This includes posts, pages, metadata, and theme options.
 					</p>
 					<button type="button" id="update-db-refs-btn" class="button button-primary">Update Database References</button>
+					<button type="button" id="stop-db-refs-btn" class="button" style="display: none;">Stop</button>
+
+					<div id="db-refs-progress-box" class="wic-progress-box" style="display: none;">
+						<div class="wic-progress-bar">
+							<div id="db-refs-progress-fill" class="progress-fill"></div>
+						</div>
+						<p id="db-refs-progress-text">Starting database update...</p>
+					</div>
 				</div>
 
 				<div class="wic-section">
@@ -492,7 +500,7 @@ class WIC_Admin_Page {
 	}
 
 	/**
-	 * AJAX: Update database references
+	 * AJAX: Update database references (one batch of 50 attachments per request)
 	 */
 	public static function ajax_update_db_refs() {
 		check_ajax_referer( 'wic_nonce', 'nonce' );
@@ -501,11 +509,20 @@ class WIC_Admin_Page {
 			wp_send_json_error( 'Unauthorized' );
 		}
 
-		$stats = WIC_Redirect_Handler::update_database_references();
+		$offset = isset( $_POST['offset'] ) ? max( 0, intval( $_POST['offset'] ) ) : 0;
+
+		$stats = WIC_Redirect_Handler::update_database_references( $offset, true );
 
 		wp_send_json_success( array(
-			'message' => 'Database references updated!',
+			'message' => $stats['done']
+				? 'Database references updated!'
+				: sprintf( 'Processed %d of %d attachments...', $stats['processed'], $stats['total'] ),
 			'stats' => $stats,
+			'done' => $stats['done'],
+			'processed' => $stats['processed'],
+			'total' => $stats['total'],
+			'progress' => $stats['progress'],
+			'next_offset' => $stats['processed'],
 		) );
 	}
 

@@ -27,6 +27,9 @@ delete_option( 'wic_auto_backup_enabled' );
 delete_option( 'wic_htaccess_configured' );
 delete_option( 'wic_update_db_refs' );
 
+// Delete any in-progress batch state
+delete_transient( 'wic_db_refs_progress' );
+
 // Optional: Delete plugin directories (logs, backups)
 // Uncomment if you want to remove logs and backups on uninstall
 /*
