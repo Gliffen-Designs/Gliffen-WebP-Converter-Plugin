@@ -420,7 +420,9 @@ class WIC_Converter {
 				$result = $this->convert_image( $intermediate_path, $quality, $backup );
 
 				if ( is_array( $result ) ) {
-					// Update metadata for this size
+					// Update metadata for this size (keep the original filename so
+					// database reference updates know the real extension, e.g. .png)
+					$metadata['sizes'][ $size_name ]['original_file'] = $size_data['file'];
 					$metadata['sizes'][ $size_name ]['file'] = basename( $result['webp_path'] );
 					$metadata['sizes'][ $size_name ]['webp_converted'] = true;
 

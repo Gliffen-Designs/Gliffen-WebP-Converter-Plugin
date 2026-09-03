@@ -314,7 +314,17 @@ HTACCESS;
 
 			// If metadata['file'] is .webp, infer original
 			if ( preg_match( '/\.webp$/i', $current_file ) ) {
-				$original_file = preg_replace( '/\.webp$/i', '.jpg', $current_file );
+				// Try to find the real original on disk to determine its extension
+				foreach ( array( 'jpg', 'jpeg', 'png', 'gif' ) as $ext ) {
+					$candidate = preg_replace( '/\.webp$/i', '.' . $ext, $current_file );
+					if ( file_exists( $upload_path . '/' . $candidate ) ) {
+						$original_file = $candidate;
+						break;
+					}
+				}
+				if ( ! $original_file ) {
+					$original_file = preg_replace( '/\.webp$/i', '.jpg', $current_file );
+				}
 				// Verify WebP exists
 				$webp_full_path = $upload_path . '/' . $current_file;
 				if ( ! file_exists( $webp_full_path ) ) {
@@ -343,13 +353,26 @@ HTACCESS;
 		$metadata = wp_get_attachment_metadata( $attachment_id );
 		if ( is_array( $metadata ) && isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
 			$image_dir = dirname( $original_file );
+
+			// Intermediate sizes normally share the main image's original extension.
+			$original_ext = strtolower( pathinfo( $original_file, PATHINFO_EXTENSION ) );
+			if ( ! in_array( $original_ext, array( 'jpg', 'jpeg', 'png', 'gif' ), true ) ) {
+				$original_ext = 'jpg';
+			}
+
 			foreach ( $metadata['sizes'] as $size_name => $size_data ) {
 				if ( isset( $size_data['file'] ) ) {
 					$size_filename = $size_data['file'];
 
 					// If intermediate is WebP, infer original format
 					if ( preg_match( '/\.webp$/i', $size_filename ) ) {
-						$size_filename = preg_replace( '/\.webp$/i', '.jpg', $size_filename );
+						// Prefer the original filename stored at conversion time
+						if ( ! empty( $size_data['original_file'] ) && preg_match( '/\.(jpg|jpeg|png|gif)$/i', $size_data['original_file'] ) ) {
+							$size_filename = $size_data['original_file'];
+						} else {
+							// Fall back to the main image's original extension (not hardcoded .jpg)
+							$size_filename = preg_replace( '/\.webp$/i', '.' . $original_ext, $size_filename );
+						}
 					}
 
 					$intermediate_file = $image_dir . '/' . $size_filename;
