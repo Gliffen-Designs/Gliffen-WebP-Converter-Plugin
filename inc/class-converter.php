@@ -28,10 +28,12 @@ class WIC_Converter {
 	 * @param string $image_path Path to original image file
 	 * @param int    $quality WebP quality (1-100)
 	 * @param bool   $backup Whether to backup original file
+	 * @param int    $max_width Maximum width (0 to skip resizing)
+	 * @param int    $max_height Maximum height (0 to skip resizing)
 	 *
 	 * @return array|WP_Error Array with success details or WP_Error on failure
 	 */
-	public function convert_image( $image_path, $quality = 80, $backup = false ) {
+	public function convert_image( $image_path, $quality = 80, $backup = false, $max_width = 0, $max_height = 0 ) {
 		// Check if file exists
 		if ( ! file_exists( $image_path ) ) {
 			return new WP_Error( 'file_not_found', 'Image file not found: ' . $image_path );
@@ -58,6 +60,11 @@ class WIC_Converter {
 
 			if ( ! $image ) {
 				throw new Exception( 'Failed to load image with GD library' );
+			}
+
+			// Resize if needed
+			if ( $max_width > 0 && $max_height > 0 ) {
+				$image = $this->resize_image( $image, $max_width, $max_height );
 			}
 
 			// Backup original if requested
@@ -103,6 +110,91 @@ class WIC_Converter {
 
 			return new WP_Error( 'conversion_failed', $e->getMessage() );
 		}
+	}
+
+	/**
+	 * Resize image to fit within max dimensions while maintaining aspect ratio
+	 *
+	 * @param resource $image GD image resource
+	 * @param int      $max_width Maximum width in pixels
+	 * @param int      $max_height Maximum height in pixels
+	 *
+	 * @return resource Resized GD image resource
+	 */
+	private function resize_image( $image, $max_width, $max_height ) {
+		$original_width = imagesx( $image );
+		$original_height = imagesy( $image );
+
+		// Calculate scaling to fit within max dimensions
+		$width_ratio = $max_width / $original_width;
+		$height_ratio = $max_height / $original_height;
+		$scale_ratio = min( $width_ratio, $height_ratio, 1 ); // Don't upscale
+
+		// If already smaller than max dimensions, return as-is
+		if ( $scale_ratio === 1 ) {
+			return $image;
+		}
+
+		$new_width = (int) ( $original_width * $scale_ratio );
+		$new_height = (int) ( $original_height * $scale_ratio );
+
+		// Create new image with same color mode
+		$resized = imagecreatetruecolor( $new_width, $new_height );
+
+		if ( ! $resized ) {
+			return $image;
+		}
+
+		// Preserve transparency for PNG
+		$original_type = $this->get_image_type_from_resource( $image );
+		if ( $original_type === 'png' ) {
+			imagepalettetotruecolor( $resized );
+			imagealphablending( $resized, false );
+			imagesavealpha( $resized, true );
+		}
+
+		// Perform high-quality resize
+		imagecopyresampled(
+			$resized,
+			$image,
+			0, 0, 0, 0,
+			$new_width, $new_height,
+			$original_width, $original_height
+		);
+
+		imagedestroy( $image );
+		return $resized;
+	}
+
+	/**
+	 * Get image type name from GD resource (approximate detection)
+	 *
+	 * @param resource $image GD image resource
+	 *
+	 * @return string Image type (png, jpeg, gif)
+	 */
+	private function get_image_type_from_resource( $image ) {
+		// Detect if image has transparency
+		$transparent_color = imagecolortransparent( $image );
+		if ( $transparent_color !== -1 ) {
+			// Has transparent color, likely PNG or GIF
+			return 'png';
+		}
+
+		// Check if has alpha channel
+		$width = imagesx( $image );
+		$height = imagesy( $image );
+		for ( $y = 0; $y < $height; $y++ ) {
+			for ( $x = 0; $x < $width; $x++ ) {
+				$color_index = imagecolorat( $image, $x, $y );
+				$color_rgba = imagecolorsforindex( $image, $color_index );
+				if ( isset( $color_rgba['alpha'] ) && $color_rgba['alpha'] > 0 ) {
+					return 'png';
+				}
+			}
+		}
+
+		return 'jpeg';
 	}
 
 	/**
@@ -354,10 +446,12 @@ class WIC_Converter {
 	 * @param int    $attachment_id Attachment ID
 	 * @param int    $quality WebP quality (1-100)
 	 * @param bool   $backup Whether to backup original files
+	 * @param int    $max_width Maximum width (0 to skip resizing)
+	 * @param int    $max_height Maximum height (0 to skip resizing)
 	 *
 	 * @return array|WP_Error Array with conversion stats or WP_Error on failure
 	 */
-	public function convert_attachment_with_sizes( $attachment_id, $quality = 80, $backup = false ) {
+	public function convert_attachment_with_sizes( $attachment_id, $quality = 80, $backup = false, $max_width = 0, $max_height = 0 ) {
 		$image_path = get_attached_file( $attachment_id );
 
 		if ( ! $image_path || ! file_exists( $image_path ) ) {
@@ -377,7 +471,7 @@ class WIC_Converter {
 		$failure_messages = array();
 
 		// Convert main image
-		$main_result = $this->convert_image( $image_path, $quality, $backup );
+		$main_result = $this->convert_image( $image_path, $quality, $backup, $max_width, $max_height );
 		if ( is_array( $main_result ) ) {
 			$this->update_attachment_to_webp( $attachment_id, $main_result['webp_path'] );
 			$this->delete_image( $image_path );
@@ -417,7 +511,7 @@ class WIC_Converter {
 				}
 
 				// Convert intermediate size
-				$result = $this->convert_image( $intermediate_path, $quality, $backup );
+					$result = $this->convert_image( $intermediate_path, $quality, $backup, $max_width, $max_height );
 
 				if ( is_array( $result ) ) {
 					// Update metadata for this size (keep the original filename so

@@ -3,7 +3,7 @@
  * Plugin Name: Gliffen WebP Converter
  * Plugin URI: https://github.com/Gliffen-Designs/Gliffen-WebP-Converter-Plugin
  * Description: Convert images to WebP format with intelligent URL redirects and space savings
- * Version: 1.1.0
+ * Version: 1.1.1
  * Update URI: https://github.com/Gliffen-Designs/Gliffen-WebP-Converter-Plugin
  * Author: Gliffen
  * Author URI: https://gliffen.com
@@ -77,9 +77,12 @@ function wic_handle_upload( $upload ) {
 	// Convert to WebP
 	$quality = WIC_Settings::get_option( 'webp_quality', 80 );
 	$backup = WIC_Settings::get_option( 'auto_backup_enabled', false );
+	$resize_enabled = WIC_Settings::get_option( 'resize_enabled', true );
+	$max_width = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_width', 2200 ) : 0;
+	$max_height = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_height', 1400 ) : 0;
 
 	$converter = new WIC_Converter();
-	$result = $converter->convert_image( $file_path, $quality, $backup );
+	$result = $converter->convert_image( $file_path, $quality, $backup, $max_width, $max_height );
 
 	if ( is_array( $result ) && isset( $result['webp_path'] ) ) {
 		// Delete original file
@@ -119,9 +122,12 @@ function wic_handle_attachment_metadata( $metadata, $attachment_id ) {
 
 	$quality = WIC_Settings::get_option( 'webp_quality', 80 );
 	$backup = WIC_Settings::get_option( 'auto_backup_enabled', false );
+	$resize_enabled = WIC_Settings::get_option( 'resize_enabled', true );
+	$max_width = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_width', 2200 ) : 0;
+	$max_height = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_height', 1400 ) : 0;
 
 	$converter = new WIC_Converter();
-	$result = $converter->convert_attachment_with_sizes( $attachment_id, $quality, $backup );
+	$result = $converter->convert_attachment_with_sizes( $attachment_id, $quality, $backup, $max_width, $max_height );
 
 	// Return updated metadata
 	return wp_get_attachment_metadata( $attachment_id );
@@ -179,6 +185,15 @@ function wic_activate() {
 	}
 	if ( ! get_option( 'wic_batch_size' ) ) {
 		add_option( 'wic_batch_size', 200 );
+	}
+	if ( ! get_option( 'wic_max_image_width' ) ) {
+		add_option( 'wic_max_image_width', 2200 );
+	}
+	if ( ! get_option( 'wic_max_image_height' ) ) {
+		add_option( 'wic_max_image_height', 1400 );
+	}
+	if ( ! get_option( 'wic_resize_enabled' ) ) {
+		add_option( 'wic_resize_enabled', true );
 	}
 
 	// Flush rewrite rules

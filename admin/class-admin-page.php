@@ -246,6 +246,33 @@ class WIC_Admin_Page {
 								<p class="description">Lower values = smaller file size but lower quality. Default: 80 (recommended).</p>
 							</td>
 						</tr>
+						<tr>
+							<th scope="row">
+								<label for="resize-enabled">Resize Images on Upload</label>
+							</th>
+							<td>
+								<input type="checkbox" id="resize-enabled" name="resize_enabled" value="1" <?php checked( $settings['resize_enabled'] ); ?> />
+								<p class="description">Automatically resize images to fit within the maximum width and height parameters while maintaining aspect ratio.</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="max-width">Maximum Image Width (px)</label>
+							</th>
+							<td>
+								<input type="number" id="max-width" name="max_image_width" min="100" value="<?php echo esc_attr( $settings['max_image_width'] ); ?>" style="width: 150px;" />
+								<p class="description">Maximum width for images in pixels. Default: 2200px. Set 0 to disable width limiting.</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								<label for="max-height">Maximum Image Height (px)</label>
+							</th>
+							<td>
+								<input type="number" id="max-height" name="max_image_height" min="100" value="<?php echo esc_attr( $settings['max_image_height'] ); ?>" style="width: 150px;" />
+								<p class="description">Maximum height for images in pixels. Default: 1400px. Set 0 to disable height limiting.</p>
+							</td>
+						</tr>
 					</table>
 
 					<div class="wic-actions">
@@ -388,9 +415,12 @@ class WIC_Admin_Page {
 
 		$quality = WIC_Settings::get_option( 'webp_quality', 80 );
 		$backup = WIC_Settings::get_option( 'auto_backup_enabled', false );
+		$resize_enabled = WIC_Settings::get_option( 'resize_enabled', true );
+		$max_width = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_width', 2200 ) : 0;
+		$max_height = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_height', 1400 ) : 0;
 
 		// Convert this image (returns count of individual sizes converted)
-		$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup );
+		$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup, $max_width, $max_height );
 
 		$converted = 0;
 		$failed = 0;
@@ -457,10 +487,16 @@ class WIC_Admin_Page {
 		$auto_convert = (bool) intval( $_POST['auto_convert_enabled'] ?? 0 );
 		$auto_backup = (bool) intval( $_POST['auto_backup_enabled'] ?? 0 );
 		$quality = isset( $_POST['webp_quality'] ) ? intval( $_POST['webp_quality'] ) : 80;
+		$resize_enabled = (bool) intval( $_POST['resize_enabled'] ?? 0 );
+		$max_width = isset( $_POST['max_image_width'] ) ? intval( $_POST['max_image_width'] ) : 2200;
+		$max_height = isset( $_POST['max_image_height'] ) ? intval( $_POST['max_image_height'] ) : 1400;
 
 		WIC_Settings::update_option( 'auto_convert_enabled', $auto_convert );
 		WIC_Settings::update_option( 'auto_backup_enabled', $auto_backup );
 		WIC_Settings::update_option( 'webp_quality', max( 1, min( 100, $quality ) ) );
+		WIC_Settings::update_option( 'resize_enabled', $resize_enabled );
+		WIC_Settings::update_option( 'max_image_width', max( 100, $max_width ) );
+		WIC_Settings::update_option( 'max_image_height', max( 100, $max_height ) );
 
 		wp_send_json_success( array( 'message' => 'Settings saved successfully!' ) );
 	}

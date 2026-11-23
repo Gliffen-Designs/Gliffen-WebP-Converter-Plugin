@@ -30,6 +30,9 @@ class WIC_Settings {
 			'auto_backup_enabled' => true,
 			'htaccess_configured' => false,
 			'update_db_refs' => true,
+			'max_image_width' => 2200,
+			'max_image_height' => 1400,
+			'resize_enabled' => true,
 		);
 
 		foreach ( $defaults as $option => $default_value ) {
@@ -48,6 +51,9 @@ class WIC_Settings {
 		register_setting( 'wic_settings', self::PREFIX . 'auto_backup_enabled' );
 		register_setting( 'wic_settings', self::PREFIX . 'htaccess_configured' );
 		register_setting( 'wic_settings', self::PREFIX . 'update_db_refs' );
+		register_setting( 'wic_settings', self::PREFIX . 'max_image_width' );
+		register_setting( 'wic_settings', self::PREFIX . 'max_image_height' );
+		register_setting( 'wic_settings', self::PREFIX . 'resize_enabled' );
 	}
 
 	/**
@@ -97,6 +103,9 @@ class WIC_Settings {
 			'auto_backup_enabled' => self::get_option( 'auto_backup_enabled', false ),
 			'htaccess_configured' => self::get_option( 'htaccess_configured', false ),
 			'update_db_refs' => self::get_option( 'update_db_refs', true ),
+			'max_image_width' => self::get_option( 'max_image_width', 2200 ),
+			'max_image_height' => self::get_option( 'max_image_height', 1400 ),
+			'resize_enabled' => self::get_option( 'resize_enabled', true ),
 		);
 	}
 
@@ -109,6 +118,9 @@ class WIC_Settings {
 		self::update_option( 'auto_backup_enabled', false );
 		self::update_option( 'htaccess_configured', false );
 		self::update_option( 'update_db_refs', true );
+		self::update_option( 'max_image_width', 2200 );
+		self::update_option( 'max_image_height', 1400 );
+		self::update_option( 'resize_enabled', true );
 	}
 }
 
