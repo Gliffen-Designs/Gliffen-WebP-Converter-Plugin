@@ -181,7 +181,7 @@ class WIC_Admin_Page {
 			<!-- Batch Conversion Tab -->
 			<div id="tab-conversion" class="wic-tab-content active">
 				<h2>Batch Image Conversion</h2>
-				<p>Convert all images in your media library to WebP format one at a time until the maximum process limit is reached.</p>
+				<p>Convert all images in your media library to WebP format in batches until the maximum process limit is reached.</p>
 
 				<div class="wic-progress-box" style="display: none;">
 					<div class="wic-progress-bar">
@@ -191,13 +191,17 @@ class WIC_Admin_Page {
 				</div>
 
 				<div class="wic-actions">
-					<div style="display: flex; gap: 15px; align-items: center;">
+					<div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
 						<button id="start-conversion-btn" class="button button-primary">
 							Start Batch Conversion
 						</button>
 						<button id="stop-conversion-btn" class="button" style="display: none;">
 							Stop Conversion
 						</button>
+						<div>
+							<label for="batch-size" style="display: block; margin-bottom: 5px;"><strong>Images Per Batch:</strong></label>
+							<input type="number" id="batch-size" min="1" max="20" value="5" style="width: 100px; padding: 5px;" />
+						</div>
 						<div>
 							<label for="max-images" style="display: block; margin-bottom: 5px;"><strong>Max Images to Process:</strong></label>
 							<input type="number" id="max-images" min="1" max="10000" value="50" style="width: 120px; padding: 5px;" />
@@ -206,7 +210,7 @@ class WIC_Admin_Page {
 				</div>
 
 				<p class="wic-info">
-					<strong>Note:</strong> Images will be processed one at a time. Original files will be deleted after successful conversion. Adjust "Max Images to Process" to control how many images are converted in each session.
+					<strong>Note:</strong> Images are now processed in batches (default: 5 per request). Increase "Images Per Batch" for faster conversion (uses more server resources). Original files will be deleted after successful conversion.
 				</p>
 			</div>
 
@@ -368,7 +372,7 @@ class WIC_Admin_Page {
 	}
 
 	/**
-	 * AJAX: Batch convert images
+	 * AJAX: Batch convert images (now processes multiple images per request)
 	 */
 	public static function ajax_batch_convert() {
 		check_ajax_referer( 'wic_nonce', 'nonce' );
@@ -379,6 +383,8 @@ class WIC_Admin_Page {
 
 		$total_converted_so_far = isset( $_POST['total_converted_so_far'] ) ? intval( $_POST['total_converted_so_far'] ) : 0;
 		$max_images = isset( $_POST['max_images'] ) ? intval( $_POST['max_images'] ) : 500;
+		$batch_size = isset( $_POST['batch_size'] ) ? intval( $_POST['batch_size'] ) : 5;
+		$batch_size = max( 1, min( 20, $batch_size ) );  // Clamp between 1-20
 
 		// Check if we've already hit the max limit
 		if ( $total_converted_so_far >= $max_images ) {
@@ -396,10 +402,10 @@ class WIC_Admin_Page {
 		}
 
 		$converter = new WIC_Converter();
-		$image = $converter->get_media_library_images();
+		$images = $converter->get_media_library_images( $batch_size );
 
 		// No more unconverted images
-		if ( ! $image ) {
+		if ( empty( $images ) ) {
 			wp_send_json_success( array(
 				'converted' => 0,
 				'failed' => 0,
@@ -419,33 +425,44 @@ class WIC_Admin_Page {
 		$max_width = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_width', 2200 ) : 0;
 		$max_height = $resize_enabled ? (int) WIC_Settings::get_option( 'max_image_height', 1400 ) : 0;
 
-		// Convert this image (returns count of individual sizes converted)
-		$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup, $max_width, $max_height );
-
 		$converted = 0;
 		$failed = 0;
-		if ( is_array( $result ) && $result['converted_count'] > 0 ) {
-			$converted = 1; // Count as 1 attachment converted, not the number of sizes
-			$failed = 0;
+		$ids_to_update = array();
 
-			// Immediately update database references for this image
-			WIC_Redirect_Handler::update_database_references_for_attachment( $image->ID );
-		} else {
-			$failed = 1;
+		// Process all images in this batch
+		foreach ( $images as $image ) {
+			$result = $converter->convert_attachment_with_sizes( $image->ID, $quality, $backup, $max_width, $max_height );
+
+			if ( is_array( $result ) && $result['converted_count'] > 0 ) {
+				$converted++;
+				$ids_to_update[] = $image->ID;
+			} else {
+				$failed++;
+			}
+
+			// Stop if we're about to exceed max limit
+			if ( $total_converted_so_far + $converted >= $max_images ) {
+				break;
+			}
+		}
+
+		// Batch update database references after all images in batch are converted
+		foreach ( $ids_to_update as $image_id ) {
+			WIC_Redirect_Handler::update_database_references_for_attachment( $image_id );
 		}
 
 		$new_total_converted = $total_converted_so_far + $converted;
 		$hit_max_limit = $new_total_converted >= $max_images;
 
 		// Check if there's another image waiting
-		$next_image = $converter->get_media_library_images();
-		$has_more = $next_image !== null && ! $hit_max_limit;
+		$next_images = $converter->get_media_library_images( 1 );
+		$has_more = ! empty( $next_images ) && ! $hit_max_limit;
 
 		wp_send_json_success( array(
 			'converted' => $converted,
 			'failed' => $failed,
 			'total_converted' => $new_total_converted,
-			'total_remaining' => $has_more ? 1 : 0, // If there's a next image, there's at least 1 remaining
+			'total_remaining' => $has_more ? 1 : 0,
 			'total_converted_so_far' => $new_total_converted,
 			'max_images' => $max_images,
 			'progress' => ( $new_total_converted / $max_images ) * 100,

@@ -37,6 +37,7 @@
 		}
 
 		const maxImages = parseInt($('#max-images').val()) || 500;
+		const batchSize = parseInt($('#batch-size').val()) || 5;
 
 		$.ajax({
 			url: wicAjax.ajax_url,
@@ -45,7 +46,8 @@
 				action: 'wic_batch_convert',
 				nonce: wicAjax.nonce,
 				total_converted_so_far: totalConvertedSoFar,
-				max_images: maxImages
+				max_images: maxImages,
+				batch_size: batchSize
 			},
 			success: function(response) {
 				if (response.success) {
@@ -84,8 +86,8 @@
 						isConverting = false;
 						refreshStats();
 					} else {
-						// Continue with next image
-						setTimeout(startBatchConversion, 500);
+						// Continue with next batch (reduced from 500ms to 100ms)
+						setTimeout(startBatchConversion, 100);
 					}
 				} else {
 					showError(response.data.message);

@@ -167,33 +167,18 @@ class WIC_Converter {
 	}
 
 	/**
-	 * Get image type name from GD resource (approximate detection)
+	 * Get image type name from GD resource (quick detection)
 	 *
 	 * @param resource $image GD image resource
 	 *
 	 * @return string Image type (png, jpeg, gif)
 	 */
 	private function get_image_type_from_resource( $image ) {
-		// Detect if image has transparency
+		// Quick detection: check transparent color index
 		$transparent_color = imagecolortransparent( $image );
 		if ( $transparent_color !== -1 ) {
-			// Has transparent color, likely PNG or GIF
 			return 'png';
 		}
-
-		// Check if has alpha channel
-		$width = imagesx( $image );
-		$height = imagesy( $image );
-		for ( $y = 0; $y < $height; $y++ ) {
-			for ( $x = 0; $x < $width; $x++ ) {
-				$color_index = imagecolorat( $image, $x, $y );
-				$color_rgba = imagecolorsforindex( $image, $color_index );
-				if ( isset( $color_rgba['alpha'] ) && $color_rgba['alpha'] > 0 ) {
-					return 'png';
-				}
-			}
-		}
-
 		return 'jpeg';
 	}
 
@@ -323,26 +308,37 @@ class WIC_Converter {
 	}
 
 	/**
-	 * Get the next unconverted image from media library
+	 * Get unconverted images from media library
 	 *
-	 * @return object|null Next unconverted image attachment or null if none found
+	 * @param int $limit Maximum number of images to return (default 1)
+	 * @return array Array of unconverted image attachments
 	 */
-	public function get_media_library_images() {
+	public function get_media_library_images( $limit = 1 ) {
+		// Use meta_query to only fetch unconverted images, avoid fetching all then filtering
+		$meta_query = array(
+			'relation' => 'AND',
+			array(
+				'key' => '_webp_converted',
+				'compare' => 'NOT EXISTS',
+			),
+			array(
+				'key' => self::FAILED_CONVERSION_META_KEY,
+				'compare' => 'NOT EXISTS',
+			),
+		);
+
 		$args = array(
 			'post_type' => 'attachment',
 			'post_mime_type' => 'image/jpeg,image/png,image/gif',
-			'posts_per_page' => -1,
+			'posts_per_page' => $limit,
 			'post_status' => 'inherit',
+			'meta_query' => $meta_query,
 		);
 
-		$all_images = get_posts( $args );
+		$unconverted_images = get_posts( $args );
+		$result = array();
 
-		foreach ( $all_images as $image ) {
-			// Skip files that have already failed conversion in batch mode.
-			if ( $this->is_attachment_marked_failed( $image->ID ) ) {
-				continue;
-			}
-
+		foreach ( $unconverted_images as $image ) {
 			$image_path = get_attached_file( $image->ID );
 
 			// Skip if file path is invalid or doesn't exist
@@ -364,12 +360,10 @@ class WIC_Converter {
 				continue;
 			}
 
-			// Return the first unconverted image found
-			return $image;
+			$result[] = $image;
 		}
 
-		// No unconverted images found
-		return null;
+		return $result;
 	}
 
 	/**
