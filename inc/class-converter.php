@@ -314,31 +314,23 @@ class WIC_Converter {
 	 * @return array Array of unconverted image attachments
 	 */
 	public function get_media_library_images( $limit = 1 ) {
-		// Use meta_query to only fetch unconverted images, avoid fetching all then filtering
-		$meta_query = array(
-			'relation' => 'AND',
-			array(
-				'key' => '_webp_converted',
-				'compare' => 'NOT EXISTS',
-			),
-			array(
-				'key' => self::FAILED_CONVERSION_META_KEY,
-				'compare' => 'NOT EXISTS',
-			),
-		);
-
 		$args = array(
 			'post_type' => 'attachment',
 			'post_mime_type' => 'image/jpeg,image/png,image/gif',
-			'posts_per_page' => $limit,
+			'posts_per_page' => -1,
 			'post_status' => 'inherit',
-			'meta_query' => $meta_query,
 		);
 
-		$unconverted_images = get_posts( $args );
+		$all_images = get_posts( $args );
 		$result = array();
+		$count = 0;
 
-		foreach ( $unconverted_images as $image ) {
+		foreach ( $all_images as $image ) {
+			// Skip files that have already failed conversion in batch mode
+			if ( $this->is_attachment_marked_failed( $image->ID ) ) {
+				continue;
+			}
+
 			$image_path = get_attached_file( $image->ID );
 
 			// Skip if file path is invalid or doesn't exist
@@ -361,6 +353,12 @@ class WIC_Converter {
 			}
 
 			$result[] = $image;
+			$count++;
+
+			// Stop once we have enough images for this batch
+			if ( $count >= $limit ) {
+				break;
+			}
 		}
 
 		return $result;
